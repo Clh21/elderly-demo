@@ -309,6 +309,122 @@ app.post('/api/alerts/:id/resolve', async (req, res) => {
   }
 });
 
+// ── POST /api/samsung-watch  (Samsung Galaxy Watch 8 data ingestion) ──
+// Accepts all payload formats from the watch:
+//   1. { sensorType: "eda",         eda: { skinConductance, label, ... } }
+//   2. { sensorType: "heart_rate",   heartRate: { bpm, status, ... } }
+//   3. { sensorType: "temperature",  temperature: { wristSkinTemperature, ambientTemperature, ... } }
+//   4. { event: "wear_state",        isWorn, state }
+//   5. Legacy combined: { eda: {...}, heartRate: {...}, temperature: {...} }
+//
+// The watch is matched to a resident by watchId query param or client IP.
+// Data is stored via UPSERT into minute_readings (one row per minute).
+app.post('/api/samsung-watch', async (req, res) => {
+  try {
+    const payload = req.body;
+    // watchId can be passed as query param, header, or falls back to client IP
+    const watchId = req.query.watchId || req.headers['x-watch-id'] || null;
+
+    // Resolve resident by watchId or leave null (store raw data without resident link)
+    let residentId = null;
+    if (watchId) {
+      const [rows] = await pool.query(
+        `SELECT id FROM residents WHERE watch_id = ? LIMIT 1`, [watchId]
+      );
+      if (rows.length > 0) residentId = rows[0].id;
+    }
+
+    if (!residentId) {
+      // Try to find resident by any registered watch
+      const [rows] = await pool.query(`SELECT id, watch_id FROM residents LIMIT 10`);
+      // Default to demo watch if no match
+      const demo = rows.find(r => r.watch_id === 'demo-watch-001');
+      if (demo) residentId = demo.id;
+    }
+
+    const effectiveWatchId = watchId || 'real-watch-001';
+    const slot = currentMinuteSlot();
+
+    // ── Parse payload fields ────────────────────────────────
+    let hr = null, temp = null, wristTemp = null, ambientTemp = null;
+    let eda = null, edaLabel = null, wearStatus = null;
+
+    const sensorType = payload.sensorType || null;
+    const event      = payload.event || null;
+
+    // EDA
+    if (sensorType === 'eda' || payload.eda) {
+      const edaData = payload.eda || {};
+      eda      = edaData.skinConductance != null ? parseFloat(edaData.skinConductance) : null;
+      edaLabel = edaData.label || null;
+    }
+
+    // Heart Rate
+    if (sensorType === 'heart_rate' || payload.heartRate) {
+      const hrData = payload.heartRate || {};
+      hr = hrData.bpm != null ? parseFloat(hrData.bpm) : null;
+    }
+
+    // Temperature
+    if (sensorType === 'temperature' || payload.temperature) {
+      const tempData = payload.temperature || {};
+      wristTemp   = tempData.wristSkinTemperature   != null ? parseFloat(tempData.wristSkinTemperature)   : null;
+      ambientTemp = tempData.ambientTemperature      != null ? parseFloat(tempData.ambientTemperature)      : null;
+      temp = wristTemp; // use wrist temp as primary temperature
+    }
+
+    // Wear state event
+    if (event === 'wear_state') {
+      wearStatus = payload.isWorn ? 'worn' : 'not_worn';
+    }
+
+    // ── Insert raw reading into watch_readings ──────────────
+    await pool.query(
+      `INSERT INTO watch_readings
+         (resident_id, watch_id, heart_rate, temperature, wrist_temperature, ambient_temperature, eda, eda_label, wear_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        residentId, effectiveWatchId,
+        hr, temp, wristTemp, ambientTemp,
+        eda, edaLabel,
+        wearStatus || 'worn'
+      ]
+    );
+
+    // ── UPSERT into minute_readings (latest value wins per minute) ──
+    // Only update fields that were present in this payload
+    const updates = [];
+    const updateVals = [];
+    if (hr          != null) { updates.push('heart_rate = VALUES(heart_rate)');               }
+    if (temp        != null) { updates.push('temperature = VALUES(temperature)');             }
+    if (wristTemp   != null) { updates.push('wrist_temperature = VALUES(wrist_temperature)'); }
+    if (ambientTemp != null) { updates.push('ambient_temperature = VALUES(ambient_temperature)'); }
+    if (eda         != null) { updates.push('eda = VALUES(eda)');                             }
+    if (edaLabel    != null) { updates.push('eda_label = VALUES(eda_label)');                 }
+    if (wearStatus  != null) { updates.push('wear_status = VALUES(wear_status)');             }
+    updates.push('updated_at = NOW()');
+
+    await pool.query(
+      `INSERT INTO minute_readings
+         (resident_id, watch_id, minute_slot, heart_rate, temperature, wrist_temperature, ambient_temperature, eda, eda_label, wear_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE ${updates.join(', ')}`,
+      [
+        residentId, effectiveWatchId, slot,
+        hr, temp, wristTemp, ambientTemp,
+        eda, edaLabel,
+        wearStatus || 'worn'
+      ]
+    );
+
+    console.log(`[Samsung Watch] ${effectiveWatchId} | sensorType:${sensorType || event || 'combined'} | HR:${hr} Temp:${wristTemp} EDA:${eda} Worn:${wearStatus}`);
+    res.json({ success: true, slot, watchId: effectiveWatchId });
+  } catch (err) {
+    console.error('[Samsung Watch] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/watch-reading  (for device data ingestion) ─────
 app.post('/api/watch-reading', async (req, res) => {
   try {

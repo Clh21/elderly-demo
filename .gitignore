@@ -4,3 +4,5 @@ frontend/dist
 backend/node_modules
 .env
 .env.local
+simulator.log
+simulator_err.log
