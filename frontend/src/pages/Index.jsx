@@ -2,17 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, Activity, Thermometer, Watch } from 'lucide-react';
 import WatchDataCard from '../components/WatchDataCard';
+import ECGCard from '../components/ECGCard';
+import ECGHistoryModal from '../components/ECGHistoryModal';
+import MetricDetailModal from '../components/MetricDetailModal';
 import DigitalTwin from '../components/DigitalTwin';
 import OverviewStats from '../components/OverviewStats';
 import AlertPopup from '../components/AlertPopup';
 import { fetchWatchData, fetchOverviewStats } from '../services/api';
 
-const BASE_URL = 'http://localhost:3001/api';
+const BASE_URL = 'http://localhost:3100/api';
 
 const Index = () => {
   const [selectedWatch, setSelectedWatch] = useState('demo-watch-001');
   const [pendingAlerts, setPendingAlerts] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
+  const [showEcgHistory, setShowEcgHistory] = useState(false);
+  const [activeMetricModal, setActiveMetricModal] = useState(null);
   const lastSeenAlertId = useRef(0);
   const queryClient = useQueryClient();
 
@@ -81,6 +86,13 @@ const Index = () => {
     <div className="min-h-screen bg-gray-50 p-6">
       {/* Alert Popup */}
       {showPopup && <AlertPopup alerts={pendingAlerts} onClose={handleClosePopup} />}
+      <ECGHistoryModal isOpen={showEcgHistory} onClose={() => setShowEcgHistory(false)} watchId={selectedWatch} />
+      <MetricDetailModal
+        isOpen={!!activeMetricModal}
+        onClose={() => setActiveMetricModal(null)}
+        watchId={selectedWatch}
+        metric={activeMetricModal}
+      />
 
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -127,8 +139,14 @@ const Index = () => {
                   </div>
                 ))}
               </div>
+            ) : watchData && watchData.dataAvailable === false ? (
+              <div className="bg-white rounded-lg p-10 shadow-sm flex flex-col items-center justify-center text-center">
+                <Watch className="h-12 w-12 text-gray-300 mb-4" />
+                <h3 className="text-lg font-semibold text-gray-500 mb-2">No Data Available</h3>
+                <p className="text-sm text-gray-400">This watch has not sent any data yet.<br />Please ensure the watch app is running and connected to this server.</p>
+              </div>
             ) : watchData ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 <WatchDataCard
                   title="Heart Rate"
                   value={watchData.heartRate}
@@ -136,22 +154,44 @@ const Index = () => {
                   icon={<Heart className="h-6 w-6 text-red-500" />}
                   status={watchData.heartRateStatus}
                   chartData={watchData.heartRateHistory}
+                  readingTimestamp={watchData.heartRateTimestamp}
+                  onTitleClick={() => setActiveMetricModal('heartRate')}
                 />
                 <WatchDataCard
-                  title="Temperature"
+                  title="Body Temperature"
                   value={watchData.temperature}
                   unit="°C"
                   icon={<Thermometer className="h-6 w-6 text-orange-500" />}
                   status={watchData.temperatureStatus}
                   chartData={watchData.temperatureHistory}
+                  readingTimestamp={watchData.temperatureTimestamp}
+                  onTitleClick={() => setActiveMetricModal('temperature')}
+                  detailText={watchData.wristTemperature != null || watchData.ambientTemperature != null
+                    ? `Wrist ${watchData.wristTemperature ?? '--'}°C • Ambient ${watchData.ambientTemperature ?? '--'}°C`
+                    : null}
                 />
                 <WatchDataCard
                   title="EDA (Stress)"
-                  value={watchData.eda}
-                  unit="μS"
+                  value={watchData.edaState || '--'}
+                  unit=""
                   icon={<Activity className="h-6 w-6 text-purple-500" />}
                   status={watchData.edaStatus}
                   chartData={watchData.edaHistory}
+                  readingTimestamp={watchData.edaTimestamp}
+                  onTitleClick={() => setActiveMetricModal('eda')}
+                  detailText={watchData.edaLabel ? `EDA pattern: ${watchData.edaLabel}` : 'Stress state derived from electrodermal activity'}
+                />
+                <ECGCard
+                  rhythm={watchData.ecgResult}
+                  status={watchData.ecgStatus}
+                  chartData={watchData.ecgHistory}
+                  readingTimestamp={watchData.ecgTimestamp}
+                  sampleCount={watchData.ecgSampleCount}
+                  estimatedHeartRate={watchData.ecgHeartRate}
+                  durationSeconds={watchData.ecgDurationSeconds}
+                  displayRangeMv={watchData.ecgDisplayRangeMv}
+                  interpretationBasis={watchData.ecgInterpretationBasis}
+                  onOpenHistory={() => setShowEcgHistory(true)}
                 />
                 <WatchDataCard
                   title="Wear Status"
@@ -161,6 +201,10 @@ const Index = () => {
                   status={watchData.wearStatus}
                   chartData={watchData.wearHistory}
                   isStatusCard={true}
+                  readingTimestamp={watchData.wearStatusTimestamp}
+                  statusDetailText={watchData.isCharging == null
+                    ? null
+                    : `${watchData.isCharging ? 'Charging' : 'On battery'}${watchData.chargeSource ? ` • ${watchData.chargeSource}` : ''}${watchData.batteryLevelPercent != null ? ` • ${watchData.batteryLevelPercent}%` : ''}`}
                 />
               </div>
             ) : (

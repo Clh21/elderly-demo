@@ -1,7 +1,7 @@
 // Admin API service - connects to Express + MySQL backend at localhost:3001
 import { fetchAlerts, fetchOverviewStats, fetchElderlyResidents } from './api';
 
-const BASE_URL = 'http://localhost:3001/api';
+const BASE_URL = 'http://localhost:3100/api';
 
 // Fetch all residents with latest health data
 export const fetchAllResidentsData = async () => {

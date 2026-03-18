@@ -38,7 +38,10 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS elderly;"
 mysql -u root -p elderly < backend/schema.sql
 ```
 
-The schema creates 5 tables and seeds 5 sample residents including `demo-watch-001`.
+The schema creates 5 tables and keeps 3 active dashboard users:
+- `demo-watch-001` for simulated data
+- `real-watch-001` for real watch data
+- `real-watch-002` for real watch data
 
 ### 3. Install backend dependencies
 
@@ -67,7 +70,7 @@ cd backend
 node index.js
 ```
 
-Runs at **http://localhost:3001**
+Runs at **http://localhost:3100**
 
 On startup, the built-in Node.js simulator automatically begins generating data for `demo-watch-001`:
 - Inserts a new reading every **10 seconds** (UPSERT by minute into `minute_readings`)
@@ -127,7 +130,7 @@ Press `Ctrl+C` to stop. On exit, it automatically sends an UNWORN wear state.
 The backend accepts real watch data at:
 
 ```
-POST http://localhost:3001/api/samsung-watch?watchId=<watch_id>
+POST http://localhost:3100/api/samsung-watch?watchId=<watch_id>
 ```
 
 All payload formats from the watch are supported:
@@ -146,7 +149,14 @@ All payload formats from the watch are supported:
 { "event": "wear_state", "isWorn": true, "state": "WORN" }
 ```
 
-To connect a real Samsung Galaxy Watch 8, configure its HTTP sender to POST to `http://<server-ip>:3001/api/samsung-watch?watchId=<watch_id>`.
+To connect a real Samsung Galaxy Watch 8, configure its HTTP sender to POST to `http://<server-ip>:3100/api/samsung-watch?watchId=<watch_id>`.
+
+Only these three watch IDs are accepted by the backend:
+- `demo-watch-001`
+- `real-watch-001`
+- `real-watch-002`
+
+If a real-watch user has no row in the database yet, the dashboard returns `No Data Available` instead of simulated data.
 
 ---
 

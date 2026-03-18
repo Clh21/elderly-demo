@@ -1,11 +1,33 @@
 // API service - connects to Express + MySQL backend at localhost:3001
 
-const BASE_URL = 'http://localhost:3001/api';
+const BASE_URL = 'http://localhost:3100/api';
 
 // Fetch real-time watch data
 export const fetchWatchData = async (watchId) => {
   const res = await fetch(`${BASE_URL}/watch/${watchId}`);
   if (!res.ok) throw new Error('Failed to fetch watch data');
+  return res.json();
+};
+
+export const fetchEcgHistory = async (watchId, page = 1, pageSize = 10) => {
+  const res = await fetch(`${BASE_URL}/watch/${watchId}/ecg-history?page=${page}&pageSize=${pageSize}`);
+  if (!res.ok) throw new Error('Failed to fetch ECG history');
+  return res.json();
+};
+
+export const fetchEcgHistoryDetail = async (watchId, readingId) => {
+  const res = await fetch(`${BASE_URL}/watch/${watchId}/ecg-history/${readingId}`);
+  if (!res.ok) throw new Error('Failed to fetch ECG history detail');
+  return res.json();
+};
+
+export const fetchMetricDetail = async (watchId, metric, date) => {
+  const query = new URLSearchParams({ metric });
+  if (date) {
+    query.set('date', date);
+  }
+  const res = await fetch(`${BASE_URL}/watch/${watchId}/metric-detail?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch metric detail');
   return res.json();
 };
 

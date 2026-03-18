@@ -39,7 +39,7 @@ const DigitalTwin = ({ watchId, watchData }) => {
             <span className="text-sm font-medium">Heart Rate</span>
           </div>
           <span className="text-sm font-bold text-gray-900">
-            {watchData?.heartRate || '--'} bpm
+            {watchData?.heartRate ?? '--'} bpm
           </span>
         </div>
 
@@ -49,7 +49,7 @@ const DigitalTwin = ({ watchId, watchData }) => {
             <span className="text-sm font-medium">Temperature</span>
           </div>
           <span className="text-sm font-bold text-gray-900">
-            {watchData?.temperature || '--'}°C
+            {watchData?.temperature ?? '--'}°C
           </span>
         </div>
 
@@ -59,7 +59,7 @@ const DigitalTwin = ({ watchId, watchData }) => {
             <span className="text-sm font-medium">Stress Level</span>
           </div>
           <span className="text-sm font-bold text-gray-900">
-            {watchData?.eda || '--'} μS
+            {watchData?.edaState || '--'}
           </span>
         </div>
 

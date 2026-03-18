@@ -9,8 +9,22 @@ const WatchDataCard = ({
   icon, 
   status, 
   chartData, 
-  isStatusCard = false 
+  isStatusCard = false,
+  readingTimestamp = null,
+  detailText = null,
+  statusDetailText = null,
+  onTitleClick = null,
 }) => {
+  const formattedTimestamp = readingTimestamp
+    ? new Date(readingTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+  const statusChartData = (chartData || []).map((point) => ({
+    ...point,
+    wornValue: point.value === 1 ? 1 : null,
+    unwornValue: point.value === 0 ? 0 : null,
+    chargeValue: point.isCharging ? 0.5 : null,
+  }));
+
   const getStatusIcon = (status) => {
     switch (status?.toLowerCase()) {
       case 'normal':
@@ -43,7 +57,13 @@ const WatchDataCard = ({
 
   const formatValue = (val, unit) => {
     if (isStatusCard) {
+      if (val == null || val === 'unknown') {
+        return 'Unknown';
+      }
       return val === 'worn' ? 'Worn' : 'Not Worn';
+    }
+    if (val == null || Number.isNaN(val)) {
+      return '--';
     }
     return `${val}${unit ? ` ${unit}` : ''}`;
   };
@@ -54,7 +74,17 @@ const WatchDataCard = ({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           {icon}
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          {onTitleClick ? (
+            <button
+              type="button"
+              onClick={onTitleClick}
+              className="text-left text-lg font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+            >
+              {title}
+            </button>
+          ) : (
+            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          )}
         </div>
         <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1 ${getStatusColor(status)}`}>
           {getStatusIcon(status)}
@@ -68,9 +98,16 @@ const WatchDataCard = ({
           {formatValue(value, unit)}
         </div>
         {!isStatusCard && (
-          <div className="text-sm text-gray-500 mt-1">
-            Current reading
-          </div>
+          <>
+            <div className="text-sm text-gray-500 mt-1">
+              {formattedTimestamp ? `Last read at ${formattedTimestamp}` : 'Current reading'}
+            </div>
+            {detailText && (
+              <div className="text-xs text-gray-400 mt-1">
+                {detailText}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -109,11 +146,71 @@ const WatchDataCard = ({
 
       {/* Status Card Specific Content */}
       {isStatusCard && (
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-          <div className="text-sm text-gray-600">
-            Last updated: {new Date().toLocaleTimeString()}
+        <>
+          {statusChartData.length > 0 && (
+            <div className="h-24 mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={statusChartData}>
+                  <XAxis
+                    dataKey="time"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 12, fill: '#6B7280' }}
+                  />
+                  <YAxis hide domain={[-0.2, 1.2]} />
+                  <Tooltip
+                    formatter={(chartValue, dataKey) => {
+                      if (dataKey === 'chargeValue') {
+                        return ['Charging', 'Power'];
+                      }
+                      return [chartValue === 1 ? 'Worn' : 'Unworn', 'Status'];
+                    }}
+                    contentStyle={{
+                      backgroundColor: '#F9FAFB',
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '8px',
+                      fontSize: '12px'
+                    }}
+                  />
+                  <Line
+                    type="stepAfter"
+                    dataKey="wornValue"
+                    stroke="#16A34A"
+                    strokeWidth={3}
+                    dot={false}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="stepAfter"
+                    dataKey="unwornValue"
+                    stroke="#DC2626"
+                    strokeWidth={3}
+                    dot={false}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="stepAfter"
+                    dataKey="chargeValue"
+                    stroke="#2563EB"
+                    strokeWidth={3}
+                    dot={false}
+                    connectNulls={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div className="text-sm text-gray-600">
+              {formattedTimestamp ? `Last changed at ${formattedTimestamp}` : 'No status history yet'}
+            </div>
+            {statusDetailText && (
+              <div className="text-xs text-gray-500 mt-1">
+                {statusDetailText}
+              </div>
+            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );

@@ -6,7 +6,7 @@ Mimics the exact payload formats sent by the real watch,
 but posts them to the local backend API instead.
 
 Target watch: Demo Watch (Simulated) — watch_id = demo-watch-001
-Backend endpoint: POST http://localhost:3001/api/samsung-watch?watchId=demo-watch-001
+Backend endpoint: POST http://localhost:3100/api/samsung-watch?watchId=demo-watch-001
 
 Alert sequence (fires every 2 minutes, cycles through in order):
   1. High heart rate
@@ -30,10 +30,10 @@ import urllib.request
 import urllib.error
 
 # ── Config ──────────────────────────────────────────────────
-BACKEND_URL  = "http://localhost:3001/api/samsung-watch"
+BACKEND_URL  = "http://localhost:3100/api/samsung-watch"
 WATCH_ID     = "demo-watch-001"
 URL          = f"{BACKEND_URL}?watchId={WATCH_ID}"
-ALERT_URL    = "http://localhost:3001/api"
+ALERT_URL    = "http://localhost:3100/api"
 RESIDENT_ID  = 5       # Demo Patient
 ALERT_EVERY  = 120     # seconds between each alert in the sequence
 
