@@ -54,21 +54,9 @@ const currentMinuteSlot = () => {
 };
 
 // ── Demo simulator ──────────────────────────────────────────
-// Readings: every 10 seconds, UPSERT into minute_readings (one row per minute)
-// Alerts:   every 2 minutes, fire next in sequence
-const ALERT_SEQUENCE = [
-  { type: 'heart_rate',    severity: 'warning',  message: 'High heart rate detected (115 bpm)' },
-  { type: 'heart_rate',    severity: 'warning',  message: 'Low heart rate detected (42 bpm)' },
-  { type: 'temperature',   severity: 'warning',  message: 'High body temperature detected (38.6°C)' },
-  { type: 'temperature',   severity: 'warning',  message: 'Low body temperature detected (35.1°C)' },
-  { type: 'eda',           severity: 'warning',  message: 'High stress level detected (EDA: 5.2 μS)' },
-  { type: 'eda',           severity: 'warning',  message: 'Low stress level (EDA: 0.3 μS) — possible device issue' },
-  { type: 'fall_detection',severity: 'critical', message: 'Fall detected! Immediate attention required' },
-];
-let alertIndex = 0;
-let simulatorStartTime = Date.now();
-
-const runDemoSimulator = async () => {
+// Runs ONCE on startup to seed an initial reading for demo-watch-001.
+// All subsequent data must come from simulator.py (Python loopback).
+const seedDemoReading = async () => {
   try {
     const [residents] = await pool.query(
       `SELECT id FROM residents WHERE watch_id = 'demo-watch-001' LIMIT 1`
@@ -76,13 +64,11 @@ const runDemoSimulator = async () => {
     if (residents.length === 0) return;
     const residentId = residents[0].id;
 
-    // Generate reading values
     const hr   = Math.round(72 + (Math.random() - 0.5) * 16);
     const temp = Math.round((36.5 + (Math.random() - 0.5) * 1.0) * 10) / 10;
     const eda  = Math.round((2.5  + (Math.random() - 0.5) * 1.5) * 10) / 10;
     const slot = currentMinuteSlot();
 
-    // UPSERT into minute_readings — latest value in the minute wins
     await pool.query(
       `INSERT INTO minute_readings
          (resident_id, watch_id, minute_slot, heart_rate, temperature, eda, wear_status)
@@ -95,28 +81,15 @@ const runDemoSimulator = async () => {
       [residentId, slot, hr, temp, eda]
     );
 
-    // Every 2 minutes, fire the next alert in sequence
-    const elapsed2Min = Math.floor((Date.now() - simulatorStartTime) / (2 * 60 * 1000));
-    if (elapsed2Min > alertIndex) {
-      const alert = ALERT_SEQUENCE[alertIndex % ALERT_SEQUENCE.length];
-      alertIndex++;
-      await pool.query(
-        `INSERT INTO alerts (resident_id, type, severity, message, status)
-         VALUES (?, ?, ?, ?, 'active')`,
-        [residentId, alert.type, alert.severity, alert.message]
-      );
-      console.log(`[Simulator] Alert fired: ${alert.message}`);
-    }
-
-    console.log(`[Simulator] 10s tick — slot:${slot} HR:${hr} Temp:${temp} EDA:${eda}`);
+    console.log(`[Startup] Seeded initial demo reading — HR:${hr} Temp:${temp} EDA:${eda}`);
+    console.log('[Startup] Demo simulator stopped. Send data via simulator.py.');
   } catch (err) {
-    console.error('[Simulator] Error:', err.message);
+    console.error('[Startup] Seed error:', err.message);
   }
 };
 
-// Run immediately, then every 10 seconds
-runDemoSimulator();
-setInterval(runDemoSimulator, 10 * 1000);
+// Run once on startup only
+seedDemoReading();
 
 // ── GET /api/watch/:watchId ──────────────────────────────────
 app.get('/api/watch/:watchId', async (req, res) => {
@@ -288,6 +261,25 @@ app.get('/api/alerts/latest', async (req, res) => {
       [afterId]
     );
     res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/alerts/create ────────────────────────────────
+app.post('/api/alerts/create', async (req, res) => {
+  try {
+    const { residentId, type, severity, message } = req.body;
+    if (!residentId || !type || !severity || !message) {
+      return res.status(400).json({ error: 'Missing required fields: residentId, type, severity, message' });
+    }
+    await pool.query(
+      `INSERT INTO alerts (resident_id, type, severity, message, status) VALUES (?, ?, ?, ?, 'active')`,
+      [residentId, type, severity, message]
+    );
+    console.log(`[Alert] Created: [${severity.toUpperCase()}] ${type} — ${message}`);
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

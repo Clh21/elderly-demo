@@ -8,44 +8,53 @@ but posts them to the local backend API instead.
 Target watch: Demo Watch (Simulated) — watch_id = demo-watch-001
 Backend endpoint: POST http://localhost:3001/api/samsung-watch?watchId=demo-watch-001
 
-Data rates (matching real watch behaviour observed in watch_payloads.jsonl):
-  EDA         — every ~1 second
-  Heart Rate  — every ~3-5 minutes
-  Temperature — every ~1 minute
-  Wear State  — on state change only
+Temperature behaviour:
+  - Normal range : 35.5 – 37.0 °C  (most of the time)
+  - Full range   : 34.0 – 39.0 °C
+  - Every 2 min  : inject one abnormal reading (high >37.2 or low <35.5)
+  - Alert fired automatically when abnormal temp is detected
 """
 
 import time
 import random
 import json
-import math
 import urllib.request
 import urllib.error
-from datetime import datetime
 
 # ── Config ──────────────────────────────────────────────────
 BACKEND_URL = "http://localhost:3001/api/samsung-watch"
 WATCH_ID    = "demo-watch-001"
 URL         = f"{BACKEND_URL}?watchId={WATCH_ID}"
+ALERT_URL   = "http://localhost:3001/api"
 
-# ── Realistic base values (matching real watch ranges in JSONL) ──
-HR_BASE   = 75.0    # bpm
-TEMP_BASE = 33.0    # °C  (wrist skin temperature)
-AMB_BASE  = 31.0    # °C  (ambient temperature)
-EDA_BASE  = 0.3     # μS  (skin conductance)
+# ── Thresholds ───────────────────────────────────────────────
+TEMP_HIGH      = 37.2   # °C — above this: high temp alert
+TEMP_LOW       = 35.5   # °C — below this: low temp alert
+ABNORMAL_EVERY = 120    # seconds between injected abnormal readings
+
+# ── Base values ──────────────────────────────────────────────
+HR_BASE   = 75.0
+TEMP_BASE = 36.3
+AMB_BASE  = 25.0
+EDA_BASE  = 0.3
+
+RESIDENT_ID = 5  # Demo Patient
 
 
-# ── Helpers ──────────────────────────────────────────────────
+# ── Utilities ────────────────────────────────────────────────
 def ms_timestamp():
-    """Current time as milliseconds epoch (matches watch timestamp field)."""
     return int(time.time() * 1000)
 
 
-def post_payload(payload: dict):
-    """POST a payload dict to the backend. Returns True on success."""
+def clamp(value, lo, hi):
+    return max(lo, min(hi, value))
+
+
+def post_json(url: str, payload: dict) -> bool:
+    """POST JSON to url. Returns True on success."""
     data = json.dumps(payload).encode("utf-8")
     req  = urllib.request.Request(
-        URL,
+        url,
         data    = data,
         headers = {"Content-Type": "application/json"},
         method  = "POST",
@@ -55,51 +64,83 @@ def post_payload(payload: dict):
             result = json.loads(resp.read())
             return result.get("success", False)
     except urllib.error.URLError as e:
-        print(f"  [ERROR] Could not reach backend: {e.reason}")
+        print(f"  [ERROR] {e.reason}")
+        return False
+    except Exception:
         return False
 
 
-def clamp(value, lo, hi):
-    return max(lo, min(hi, value))
+def post_alert(alert_type: str, severity: str, message: str) -> bool:
+    """Send an alert to the backend."""
+    return post_json(
+        f"{ALERT_URL}/alerts/create",
+        {
+            "residentId": RESIDENT_ID,
+            "type":       alert_type,
+            "severity":   severity,
+            "message":    message,
+        }
+    )
 
 
-# ── Sensor state (persisted across ticks for realistic drift) ──
+# ── Sensor state ─────────────────────────────────────────────
 class SensorState:
     def __init__(self):
         self.hr           = HR_BASE
         self.wrist_temp   = TEMP_BASE
         self.ambient_temp = AMB_BASE
         self.eda          = EDA_BASE
-        self.is_worn      = True
         self.eda_label    = "STABLE"
+        # Abnormal temp injection state
+        self.injecting_abnormal = False
+        self.abnormal_target    = None
+        self.abnormal_ticks     = 0
 
     def tick_hr(self):
         """Random walk heart rate, 45–120 bpm."""
-        self.hr += random.gauss(0, 2)
+        self.hr += random.gauss(0, 1.5)
         self.hr  = clamp(self.hr, 45, 120)
         return round(self.hr)
 
-    def tick_temp(self):
-        """Random walk temperatures."""
-        self.wrist_temp   += random.gauss(0, 0.05)
-        self.ambient_temp += random.gauss(0, 0.03)
-        self.wrist_temp    = clamp(self.wrist_temp,   28.0, 38.5)
-        self.ambient_temp  = clamp(self.ambient_temp, 20.0, 36.0)
+    def tick_temp(self, force_abnormal: str = None):
+        """
+        Generate wrist temperature.
+        - Normal: random walk around 36.3°C, stays in 35.5–37.0°C most of the time
+        - force_abnormal='high': inject a high temp reading (37.3–39.0°C)
+        - force_abnormal='low' : inject a low temp reading (34.0–35.4°C)
+        Returns (wrist_temp, ambient_temp)
+        """
+        if force_abnormal == 'high':
+            # Spike to high abnormal range
+            self.wrist_temp = random.uniform(37.3, 39.0)
+        elif force_abnormal == 'low':
+            # Drop to low abnormal range
+            self.wrist_temp = random.uniform(34.0, 35.4)
+        else:
+            # Normal random walk — biased to stay in 35.5–37.0
+            self.wrist_temp += random.gauss(0, 0.04)
+            # Soft boundary: gently pull back toward 36.3 if drifting out
+            if self.wrist_temp > 37.0:
+                self.wrist_temp -= 0.08
+            elif self.wrist_temp < 35.5:
+                self.wrist_temp += 0.08
+            self.wrist_temp = clamp(self.wrist_temp, 34.0, 39.0)
+
+        self.ambient_temp += random.gauss(0, 0.02)
+        self.ambient_temp  = clamp(self.ambient_temp, 15.0, 35.0)
         return round(self.wrist_temp, 6), round(self.ambient_temp, 6)
 
     def tick_eda(self):
-        """Random walk EDA with occasional spikes, 0.005–1.5 μS."""
-        # Occasional spike
+        """Random walk EDA, 0.005–1.5 μS."""
         if random.random() < 0.03:
             self.eda += random.uniform(0.1, 0.4)
         self.eda += random.gauss(0, 0.02)
         self.eda  = clamp(self.eda, 0.005, 1.5)
-        # Label: STABLE most of the time, VARIABLE when changing fast
         self.eda_label = "VARIABLE" if abs(random.gauss(0, 1)) > 1.8 else "STABLE"
         return round(self.eda, 3), self.eda_label
 
 
-# ── Payload builders (exact format from watch_payloads.jsonl) ──
+# ── Payload builders ─────────────────────────────────────────
 def build_eda_payload(state: SensorState):
     conductance, label = state.tick_eda()
     ts = ms_timestamp()
@@ -129,8 +170,8 @@ def build_heart_rate_payload(state: SensorState):
     }
 
 
-def build_temperature_payload(state: SensorState):
-    wrist, ambient = state.tick_temp()
+def build_temperature_payload(state: SensorState, force_abnormal: str = None):
+    wrist, ambient = state.tick_temp(force_abnormal)
     ts = ms_timestamp()
     return {
         "timestamp":  ts,
@@ -161,8 +202,10 @@ def main():
     print("="*60)
     print(" Rates:")
     print("   EDA          every 1 second")
-    print("   Heart Rate   every 3 minutes")
-    print("   Temperature  every 1 minute")
+    print("   Heart Rate   every 1 second")
+    print("   Temperature  every 1 second")
+    print(f"  Abnormal temp injected every {ABNORMAL_EVERY}s (alternates high/low)")
+    print(f"  Normal wrist range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C")
     print(" Press Ctrl+C to stop.")
     print("="*60)
 
@@ -170,54 +213,99 @@ def main():
 
     # Send initial wear state
     print("\n[WEAR ] Sending initial WORN state...")
-    post_payload(build_wear_state_payload(True))
+    post_json(URL.replace("/api/samsung-watch", "").replace(BACKEND_URL, URL),
+              build_wear_state_payload(True))
+    post_json(URL, build_wear_state_payload(True))
 
-    last_hr_time   = 0
-    last_temp_time = 0
-    tick           = 0
+    tick            = 0
+    last_alert      = {'temp': None}   # throttle: 'high' | 'low' | None
+    last_abnormal_t = time.time()      # time of last abnormal injection
+    abnormal_cycle  = 0                # alternates: 0=high, 1=low
 
     try:
         while True:
-            now = time.time()
             tick += 1
+            now  = time.time()
 
-            # ── EDA: every tick (1 second) ──────────────────
+            # ── Decide if this tick injects abnormal temp ────
+            force_abnormal = None
+            if now - last_abnormal_t >= ABNORMAL_EVERY:
+                force_abnormal   = 'high' if abnormal_cycle % 2 == 0 else 'low'
+                abnormal_cycle  += 1
+                last_abnormal_t  = now
+                print(f"\n{'!'*50}")
+                print(f"[INJECT] Abnormal temperature: {force_abnormal.upper()}")
+                print(f"{'!'*50}\n")
+
+            # ── EDA ─────────────────────────────────────────
             payload = build_eda_payload(state)
-            ok = post_payload(payload)
+            ok = post_json(URL, payload)
             print(
                 f"[EDA  ] tick={tick:04d} "
-                f"conductance={payload['eda']['skinConductance']:.3f} μS "
+                f"conductance={payload['eda']['skinConductance']:.3f} \u03bcS "
                 f"label={payload['eda']['label']:<8} "
                 f"{'OK' if ok else 'FAIL'}"
             )
 
-            # ── Heart Rate: every 3 minutes ─────────────────
-            if now - last_hr_time >= 180:
-                payload = build_heart_rate_payload(state)
-                ok = post_payload(payload)
-                print(
-                    f"[HR   ] bpm={payload['heartRate']['bpm']} "
-                    f"{'OK' if ok else 'FAIL'}"
-                )
-                last_hr_time = now
+            # ── Heart Rate ───────────────────────────────────
+            payload = build_heart_rate_payload(state)
+            ok = post_json(URL, payload)
+            print(
+                f"[HR   ] tick={tick:04d} "
+                f"bpm={payload['heartRate']['bpm']} "
+                f"{'OK' if ok else 'FAIL'}"
+            )
 
-            # ── Temperature: every 1 minute ─────────────────
-            if now - last_temp_time >= 60:
-                payload = build_temperature_payload(state)
-                ok = post_payload(payload)
-                print(
-                    f"[TEMP ] wrist={payload['temperature']['wristSkinTemperature']:.5f}°C "
-                    f"ambient={payload['temperature']['ambientTemperature']:.5f}°C "
-                    f"{'OK' if ok else 'FAIL'}"
+            # ── Temperature ──────────────────────────────────
+            payload = build_temperature_payload(state, force_abnormal)
+            ok = post_json(URL, payload)
+            wrist = payload['temperature']['wristSkinTemperature']
+
+            # Determine status tag for display
+            if wrist > TEMP_HIGH:
+                status_tag = f"HIGH (>{TEMP_HIGH}\u00b0C) *** ALERT ***"
+            elif wrist < TEMP_LOW:
+                status_tag = f"LOW (<{TEMP_LOW}\u00b0C) *** ALERT ***"
+            else:
+                status_tag = "normal"
+
+            print(
+                f"[TEMP ] tick={tick:04d} "
+                f"wrist={wrist:.5f}\u00b0C "
+                f"ambient={payload['temperature']['ambientTemperature']:.5f}\u00b0C "
+                f"[{status_tag}] "
+                f"{'OK' if ok else 'FAIL'}"
+            )
+
+            # ── Temperature alert ────────────────────────────
+            if wrist > TEMP_HIGH and last_alert.get('temp') != 'high':
+                last_alert['temp'] = 'high'
+                msg = (
+                    f"High body temperature detected "
+                    f"(wrist: {wrist:.1f}\u00b0C, "
+                    f"normal range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C)"
                 )
-                last_temp_time = now
+                ok_alert = post_alert("temperature", "warning", msg)
+                print(f"[ALERT] >>> HIGH TEMP ALERT SENT: {msg} {'OK' if ok_alert else 'FAIL'}")
+
+            elif wrist < TEMP_LOW and last_alert.get('temp') != 'low':
+                last_alert['temp'] = 'low'
+                msg = (
+                    f"Low body temperature detected "
+                    f"(wrist: {wrist:.1f}\u00b0C, "
+                    f"normal range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C)"
+                )
+                ok_alert = post_alert("temperature", "warning", msg)
+                print(f"[ALERT] >>> LOW TEMP ALERT SENT: {msg} {'OK' if ok_alert else 'FAIL'}")
+
+            elif TEMP_LOW <= wrist <= TEMP_HIGH:
+                last_alert['temp'] = None  # reset when back to normal
 
             time.sleep(1)
 
     except KeyboardInterrupt:
         print("\n[STOP ] Simulator stopped by user.")
-        # Send UNWORN state on exit
-        post_payload(build_wear_state_payload(False))
+        post_json(URL, build_wear_state_payload(False))
         print("[WEAR ] Sent UNWORN state. Bye!")
 
 
