@@ -1,15 +1,8 @@
 import React from 'react';
-import { Users, AlertTriangle, Activity, Watch } from 'lucide-react';
+import { AlertTriangle, Activity, Watch } from 'lucide-react';
 
 const OverviewStats = ({ stats }) => {
   const statCards = [
-    {
-      title: 'Total Residents',
-      value: stats?.totalResidents || 0,
-      icon: <Users className="h-6 w-6 text-blue-600" />,
-      color: 'bg-blue-50 border-blue-200',
-      change: '+2 this month'
-    },
     {
       title: 'Active Alerts',
       value: stats?.activeAlerts || 0,
@@ -34,7 +27,7 @@ const OverviewStats = ({ stats }) => {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {statCards.map((stat, index) => (
         <div
           key={index}

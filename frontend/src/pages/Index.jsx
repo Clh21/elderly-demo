@@ -198,11 +198,11 @@ const Index = () => {
                   value={watchData.wearStatus}
                   unit=""
                   icon={<Watch className="h-6 w-6 text-green-500" />}
-                  status={watchData.wearStatus}
-                  chartData={watchData.wearHistory}
-                  isStatusCard={true}
+                  status={watchData.wearCardStatus}
+                  chartData={[]}
                   readingTimestamp={watchData.wearStatusTimestamp}
-                  statusDetailText={watchData.isCharging == null
+                  onTitleClick={() => setActiveMetricModal('wearStatus')}
+                  detailText={watchData.isCharging == null
                     ? null
                     : `${watchData.isCharging ? 'Charging' : 'On battery'}${watchData.chargeSource ? ` • ${watchData.chargeSource}` : ''}${watchData.batteryLevelPercent != null ? ` • ${watchData.batteryLevelPercent}%` : ''}`}
                 />

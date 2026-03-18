@@ -23,6 +23,13 @@ const typeConfig = {
     border: 'border-purple-200',
     label: 'Stress Level Alert',
   },
+  data_gap: {
+    icon: Watch,
+    color: 'text-slate-500',
+    bg: 'bg-slate-50',
+    border: 'border-slate-200',
+    label: 'Data Gap Alert',
+  },
   fall_detection: {
     icon: XCircle,
     color: 'text-red-600',

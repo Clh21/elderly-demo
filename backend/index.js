@@ -6,6 +6,8 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 // ── DB connection pool ──────────────────────────────────────
 const pool = mysql.createPool({
   host: 'localhost',
@@ -19,7 +21,7 @@ const pool = mysql.createPool({
 // ── helpers ─────────────────────────────────────────────────
 const getStatusFromValue = (metric, value) => {
   if (metric === 'heartRate')   return value > 100 || value < 50 ? 'warning' : 'normal';
-  if (metric === 'temperature') return value > 37.5 ? 'warning' : 'normal';
+  if (metric === 'temperature') return value > 37.5 || value < 35.5 ? 'warning' : 'normal';
   if (metric === 'eda')         return value > 3.5  ? 'warning' : 'normal';
   return 'normal';
 };
@@ -385,6 +387,12 @@ const METRIC_CONFIG = {
     label: 'Stress State',
     latestField: 'eda',
   },
+  wearStatus: {
+    column: 'wear_status',
+    unit: '',
+    label: 'Wear Status',
+    latestField: 'wearStatus',
+  },
 };
 
 const EDA_STATES = [
@@ -432,6 +440,83 @@ const interpretEdaStressState = (edaValue, edaLabel) => {
   return { stateLabel: 'High stress', stateLevel: 4, uiStatus: 'warning' };
 };
 
+const toEpochMs = (value) => {
+  if (value == null) return null;
+  const date = new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? null : time;
+};
+
+const isRecentWithinHour = (timestamp) => {
+  const epochMs = toEpochMs(timestamp);
+  if (epochMs == null) return false;
+  return (Date.now() - epochMs) <= ONE_HOUR_MS;
+};
+
+const getWearStatePresentation = (wearStatus, isCharging) => {
+  if (isCharging) {
+    return {
+      label: 'Charging',
+      cardStatus: 'normal',
+      lane: 3,
+      laneLabel: 'Charging',
+      color: '#fb923c',
+    };
+  }
+
+  if (wearStatus === 'worn') {
+    return {
+      label: 'Worn',
+      cardStatus: 'normal',
+      lane: 2,
+      laneLabel: 'Worn',
+      color: '#14b8a6',
+    };
+  }
+
+  if (wearStatus === 'not_worn') {
+    return {
+      label: 'Not worn',
+      cardStatus: 'warning',
+      lane: 1,
+      laneLabel: 'Not worn',
+      color: '#8b5cf6',
+    };
+  }
+
+  return {
+    label: 'Unknown',
+    cardStatus: 'unavailable',
+    lane: null,
+    laneLabel: 'Unknown',
+    color: '#94a3b8',
+  };
+};
+
+const ensureAlertState = async ({ residentId, type, severity, message, shouldBeActive }) => {
+  const [rows] = await pool.query(
+    `SELECT id FROM alerts WHERE resident_id = ? AND type = ? AND message = ? AND status = 'active' LIMIT 1`,
+    [residentId, type, message]
+  );
+
+  if (shouldBeActive) {
+    if (!rows.length) {
+      await pool.query(
+        `INSERT INTO alerts (resident_id, type, severity, message, status) VALUES (?, ?, ?, ?, 'active')`,
+        [residentId, type, severity, message]
+      );
+    }
+    return;
+  }
+
+  if (rows.length) {
+    await pool.query(
+      `UPDATE alerts SET status = 'resolved', resolved_at = NOW() WHERE id = ?`,
+      [rows[0].id]
+    );
+  }
+};
+
 const formatDayOption = (dateValue) => {
   if (!dateValue) return null;
   const date = new Date(`${dateValue}T00:00:00`);
@@ -442,6 +527,49 @@ const formatDayOption = (dateValue) => {
 const buildDailyMetricResponse = (metricKey, selectedDate, rows) => {
   const metric = METRIC_CONFIG[metricKey];
   if (!metric) return null;
+
+  if (metricKey === 'wearStatus') {
+    const points = rows
+      .map((row) => {
+        const dateTime = row.source_timestamp ? new Date(Number(row.source_timestamp)) : new Date(row.minute_slot);
+        const presentation = getWearStatePresentation(row.wear_status, row.is_charging === true || row.is_charging === 1);
+        return {
+          timestamp: row.source_timestamp || row.minute_slot,
+          dateTime,
+          value: presentation.lane,
+          stateLabel: presentation.label,
+          laneLabel: presentation.laneLabel,
+          color: presentation.color,
+          isCharging: row.is_charging === true || row.is_charging === 1,
+        };
+      })
+      .filter((row) => row.value != null && !Number.isNaN(row.dateTime.getTime()))
+      .sort((left, right) => left.dateTime - right.dateTime);
+
+    const latestPoint = points.length ? points[points.length - 1] : null;
+
+    return {
+      metric: metricKey,
+      label: metric.label,
+      unit: '',
+      selectedDate,
+      summary: {
+        latest: latestPoint?.value ?? null,
+        latestLabel: latestPoint?.stateLabel ?? null,
+        latestTimestamp: latestPoint?.timestamp ?? null,
+      },
+      points: points.map((point) => ({
+        timestamp: point.timestamp,
+        time: point.dateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        hourOfDay: Math.round(((point.dateTime.getHours() + point.dateTime.getMinutes() / 60 + point.dateTime.getSeconds() / 3600) * 1000)) / 1000,
+        value: point.value,
+        stateLabel: point.stateLabel,
+        laneLabel: point.laneLabel,
+        color: point.color,
+        isCharging: point.isCharging,
+      })),
+    };
+  }
 
   if (metricKey === 'eda') {
     const points = rows
@@ -629,21 +757,21 @@ app.get('/api/watch/:watchId', async (req, res) => {
       pool.query(
         `SELECT heart_rate, minute_slot, source_timestamp
          FROM minute_readings
-         WHERE watch_id = ? AND heart_rate IS NOT NULL
+         WHERE watch_id = ? AND heart_rate IS NOT NULL AND minute_slot >= NOW() - INTERVAL 1 HOUR
          ORDER BY minute_slot DESC LIMIT 1`,
         [watchId]
       ).then(([rows]) => rows),
       pool.query(
         `SELECT temperature, body_temperature, wrist_temperature, ambient_temperature, minute_slot, source_timestamp
          FROM minute_readings
-         WHERE watch_id = ? AND temperature IS NOT NULL
+         WHERE watch_id = ? AND temperature IS NOT NULL AND minute_slot >= NOW() - INTERVAL 1 HOUR
          ORDER BY minute_slot DESC LIMIT 1`,
         [watchId]
       ).then(([rows]) => rows),
       pool.query(
         `SELECT eda, eda_label, minute_slot, source_timestamp
          FROM minute_readings
-         WHERE watch_id = ? AND eda IS NOT NULL
+         WHERE watch_id = ? AND eda IS NOT NULL AND minute_slot >= NOW() - INTERVAL 1 HOUR
          ORDER BY minute_slot DESC LIMIT 1`,
         [watchId]
       ).then(([rows]) => rows),
@@ -711,6 +839,7 @@ app.get('/api/watch/:watchId', async (req, res) => {
     const ambientTemperature = parseNumber(latestTemperature?.ambient_temperature);
     const eda = parseNumber(latestEda?.eda);
     const edaInterpretation = interpretEdaStressState(eda, latestEda?.eda_label || null);
+    const wearPresentation = getWearStatePresentation(latestWear?.wear_status || row.wear_status || 'unknown', latestWear?.is_charging == null ? (row.is_charging === true || row.is_charging === 1) : (latestWear.is_charging === true || latestWear.is_charging === 1));
     const wearStatus = latestWear?.wear_status || row.wear_status || 'unknown';
     const isCharging = latestWear?.is_charging == null ? (row.is_charging == null ? null : Boolean(row.is_charging)) : Boolean(latestWear.is_charging);
     const chargeSource = latestWear?.charge_source || row.charge_source || null;
@@ -723,6 +852,50 @@ app.get('/api/watch/:watchId', async (req, res) => {
     const historyTemperature = historyAsc.filter(r => r.temperature != null);
     const historyEda = historyAsc.filter(r => r.eda != null);
     const historyWear = historyAsc.filter(r => r.wear_status != null);
+
+    if (resident?.id) {
+      const latestDataTimestamp = row?.minute_slot || null;
+      const latestWearTimestamp = latestWear?.minute_slot || row?.minute_slot || null;
+      const noRecentDataAlert = !isCharging && !isRecentWithinHour(latestDataTimestamp);
+      const notWornAlert = !isCharging && wearStatus === 'not_worn' && !isRecentWithinHour(latestWearTimestamp);
+      const highHeartRateAlert = heartRate != null && (heartRate > 100 || heartRate < 50);
+      const abnormalTemperatureAlert = bodyTemperature != null && (bodyTemperature > 37.5 || bodyTemperature < 35.5);
+
+      await Promise.all([
+        ensureAlertState({
+          residentId: resident.id,
+          type: 'data_gap',
+          severity: 'warning',
+          message: 'No watch data has been received for over one hour while the watch is not charging.',
+          shouldBeActive: noRecentDataAlert,
+        }),
+        ensureAlertState({
+          residentId: resident.id,
+          type: 'wear_status',
+          severity: 'warning',
+          message: 'The watch has not been worn for over one hour while it is not charging.',
+          shouldBeActive: notWornAlert,
+        }),
+        ensureAlertState({
+          residentId: resident.id,
+          type: 'heart_rate',
+          severity: heartRate != null && (heartRate > 120 || heartRate < 45) ? 'critical' : 'warning',
+          message: heartRate != null && heartRate < 50
+            ? 'Heart rate is below the normal range.'
+            : 'Heart rate is above the normal range.',
+          shouldBeActive: highHeartRateAlert,
+        }),
+        ensureAlertState({
+          residentId: resident.id,
+          type: 'temperature',
+          severity: bodyTemperature != null && (bodyTemperature > 38.0 || bodyTemperature < 35.0) ? 'critical' : 'warning',
+          message: bodyTemperature != null && bodyTemperature < 35.5
+            ? 'Body temperature is below the normal range.'
+            : 'Body temperature is above the normal range.',
+          shouldBeActive: abnormalTemperatureAlert,
+        }),
+      ]);
+    }
 
     res.json({
       dataAvailable: true,
@@ -743,7 +916,9 @@ app.get('/api/watch/:watchId', async (req, res) => {
       edaStateLevel:     edaInterpretation.stateLevel,
       edaStatus:         edaInterpretation.uiStatus,
       edaTimestamp:      pickRecordedTimestamp(latestEda),
-      wearStatus,
+      wearStatus: wearPresentation.label,
+      wearCardStatus:     wearPresentation.cardStatus,
+      wearStateRaw: wearStatus,
       wearStatusTimestamp: pickRecordedTimestamp(latestWear) || row.minute_slot,
       isCharging,
       chargeSource,
@@ -758,13 +933,13 @@ app.get('/api/watch/:watchId', async (req, res) => {
       ecgStatus:         ecgSummary?.ecgStatus ?? 'unavailable',
       ecgTimestamp:      ecgSummary?.ecgTimestamp ?? pickRecordedTimestamp(latestEcg),
       timestamp:         row.minute_slot,
-      heartRateHistory:   historyHeartRate.length >= 2
+      heartRateHistory:   historyHeartRate.length >= 1
         ? buildHistory(historyHeartRate, 'heart_rate')
-        : (isDemoWatch && heartRate != null ? generateSimulatedHistory(heartRate, 8) : []),
-      temperatureHistory: historyTemperature.length >= 2
+        : [],
+      temperatureHistory: historyTemperature.length >= 1
         ? buildHistory(historyTemperature, 'temperature')
-        : (isDemoWatch && temperature != null ? generateSimulatedHistory(temperature, 0.8) : []),
-      edaHistory:         historyEda.length >= 2
+        : [],
+      edaHistory:         historyEda.length >= 1
         ? historyEda.map((row) => {
             const interpretation = interpretEdaStressState(row.eda, row.eda_label || null);
             return {
@@ -773,14 +948,14 @@ app.get('/api/watch/:watchId', async (req, res) => {
               stateLabel: interpretation.stateLabel,
             };
           })
-        : (isDemoWatch && eda != null ? generateSimulatedHistory(eda, 1.2) : []),
-      wearHistory:        historyWear.length >= 2
+        : [],
+      wearHistory:        historyWear.length >= 1
         ? historyWear.map(r => ({
             time: new Date(r.recorded_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
             value: r.wear_status === 'worn' ? 1 : 0,
             isCharging: r.is_charging === true || r.is_charging === 1,
           }))
-        : (isDemoWatch ? generateSimulatedHistory(1, 0) : []),
+        : [],
       ecgHistory:         ecgSummary?.ecgHistory ?? [],
     });
   } catch (err) {
@@ -907,12 +1082,19 @@ app.get('/api/watch/:watchId/metric-detail', async (req, res) => {
     const selectedDate = availableDates.includes(requestedDate) ? requestedDate : availableDates[0];
 
     const [rows] = await pool.query(
-      `SELECT minute_slot, source_timestamp, ${metric.column}
-       FROM minute_readings
-       WHERE watch_id = ?
-         AND ${metric.column} IS NOT NULL
-         AND DATE(minute_slot) = ?
-       ORDER BY minute_slot ASC`,
+      metricKey === 'wearStatus'
+        ? `SELECT minute_slot, source_timestamp, wear_status, is_charging
+           FROM minute_readings
+           WHERE watch_id = ?
+             AND wear_status IS NOT NULL
+             AND DATE(minute_slot) = ?
+           ORDER BY minute_slot ASC`
+        : `SELECT minute_slot, source_timestamp, ${metric.column}${metricKey === 'eda' ? ', eda_label' : ''}
+           FROM minute_readings
+           WHERE watch_id = ?
+             AND ${metric.column} IS NOT NULL
+             AND DATE(minute_slot) = ?
+           ORDER BY minute_slot ASC`,
       [watchId, selectedDate]
     );
 

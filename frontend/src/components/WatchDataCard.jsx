@@ -68,6 +68,8 @@ const WatchDataCard = ({
     return `${val}${unit ? ` ${unit}` : ''}`;
   };
 
+  const hasValue = !(value == null || value === '--' || Number.isNaN(value));
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
       {/* Header */}
@@ -100,7 +102,7 @@ const WatchDataCard = ({
         {!isStatusCard && (
           <>
             <div className="text-sm text-gray-500 mt-1">
-              {formattedTimestamp ? `Last read at ${formattedTimestamp}` : 'Current reading'}
+              {formattedTimestamp ? `Last read at ${formattedTimestamp}` : (hasValue ? 'Current reading' : 'Unavailable in the last hour')}
             </div>
             {detailText && (
               <div className="text-xs text-gray-400 mt-1">
