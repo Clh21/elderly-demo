@@ -8,11 +8,19 @@ but posts them to the local backend API instead.
 Target watch: Demo Watch (Simulated) — watch_id = demo-watch-001
 Backend endpoint: POST http://localhost:3001/api/samsung-watch?watchId=demo-watch-001
 
+Alert sequence (fires every 2 minutes, cycles through in order):
+  1. High heart rate
+  2. Low heart rate
+  3. High body temperature
+  4. Low body temperature
+  5. High stress (EDA)
+  6. Low stress (EDA)
+  7. Fall detection
+
 Temperature behaviour:
-  - Normal range : 35.5 – 37.0 °C  (most of the time)
-  - Full range   : 34.0 – 39.0 °C
-  - Every 2 min  : inject one abnormal reading (high >37.2 or low <35.5)
-  - Alert fired automatically when abnormal temp is detected
+  - Normal range : 35.5 – 37.0 degC  (most of the time)
+  - Full range   : 34.0 – 39.0 degC
+  - When high/low temp alert fires, sensor data is also spiked accordingly
 """
 
 import time
@@ -22,15 +30,20 @@ import urllib.request
 import urllib.error
 
 # ── Config ──────────────────────────────────────────────────
-BACKEND_URL = "http://localhost:3001/api/samsung-watch"
-WATCH_ID    = "demo-watch-001"
-URL         = f"{BACKEND_URL}?watchId={WATCH_ID}"
-ALERT_URL   = "http://localhost:3001/api"
+BACKEND_URL  = "http://localhost:3001/api/samsung-watch"
+WATCH_ID     = "demo-watch-001"
+URL          = f"{BACKEND_URL}?watchId={WATCH_ID}"
+ALERT_URL    = "http://localhost:3001/api"
+RESIDENT_ID  = 5       # Demo Patient
+ALERT_EVERY  = 120     # seconds between each alert in the sequence
 
-# ── Thresholds ───────────────────────────────────────────────
-TEMP_HIGH      = 37.2   # °C — above this: high temp alert
-TEMP_LOW       = 35.5   # °C — below this: low temp alert
-ABNORMAL_EVERY = 120    # seconds between injected abnormal readings
+# ── Normal sensor thresholds ─────────────────────────────────
+TEMP_HIGH = 37.2   # degC
+TEMP_LOW  = 35.5   # degC
+HR_HIGH   = 100    # bpm — above this is considered high
+HR_LOW    = 55     # bpm — below this is considered low
+EDA_HIGH  = 4.0    # uS  — above this is high stress
+EDA_LOW   = 0.05   # uS  — below this is low stress
 
 # ── Base values ──────────────────────────────────────────────
 HR_BASE   = 75.0
@@ -38,7 +51,46 @@ TEMP_BASE = 36.3
 AMB_BASE  = 25.0
 EDA_BASE  = 0.3
 
-RESIDENT_ID = 5  # Demo Patient
+# ── Alert sequence ───────────────────────────────────────────
+# Each entry: (alert_type, severity, message, sensor_override)
+# sensor_override: dict with optional keys hr_bpm / wrist_temp / eda_value
+ALERT_SEQUENCE = [
+    (
+        "heart_rate", "warning",
+        "High heart rate detected (115 bpm)",
+        {"hr_bpm": 115}
+    ),
+    (
+        "heart_rate", "warning",
+        "Low heart rate detected (42 bpm)",
+        {"hr_bpm": 42}
+    ),
+    (
+        "temperature", "warning",
+        f"High body temperature detected (wrist: 38.2 degC, normal range: {TEMP_LOW}-{TEMP_HIGH} degC)",
+        {"wrist_temp": 38.2}
+    ),
+    (
+        "temperature", "warning",
+        f"Low body temperature detected (wrist: 34.8 degC, normal range: {TEMP_LOW}-{TEMP_HIGH} degC)",
+        {"wrist_temp": 34.8}
+    ),
+    (
+        "eda", "warning",
+        "High stress level detected (EDA: 5.2 uS)",
+        {"eda_value": 5.2}
+    ),
+    (
+        "eda", "warning",
+        "Low stress level detected (EDA: 0.02 uS) — possible device issue",
+        {"eda_value": 0.02}
+    ),
+    (
+        "fall_detection", "critical",
+        "Fall detected! Immediate attention required",
+        {}
+    ),
+]
 
 
 # ── Utilities ────────────────────────────────────────────────
@@ -91,35 +143,25 @@ class SensorState:
         self.ambient_temp = AMB_BASE
         self.eda          = EDA_BASE
         self.eda_label    = "STABLE"
-        # Abnormal temp injection state
-        self.injecting_abnormal = False
-        self.abnormal_target    = None
-        self.abnormal_ticks     = 0
 
-    def tick_hr(self):
-        """Random walk heart rate, 45–120 bpm."""
-        self.hr += random.gauss(0, 1.5)
-        self.hr  = clamp(self.hr, 45, 120)
+    def tick_hr(self, override_bpm=None):
+        """Random walk heart rate, 45-120 bpm. Override for alert injection."""
+        if override_bpm is not None:
+            self.hr = float(override_bpm)
+        else:
+            self.hr += random.gauss(0, 1.5)
+            self.hr  = clamp(self.hr, 55, 100)
         return round(self.hr)
 
-    def tick_temp(self, force_abnormal: str = None):
+    def tick_temp(self, override_wrist=None):
         """
-        Generate wrist temperature.
-        - Normal: random walk around 36.3°C, stays in 35.5–37.0°C most of the time
-        - force_abnormal='high': inject a high temp reading (37.3–39.0°C)
-        - force_abnormal='low' : inject a low temp reading (34.0–35.4°C)
-        Returns (wrist_temp, ambient_temp)
+        Normal wrist temp: 35.5-37.0 degC with soft boundaries.
+        Override for alert injection.
         """
-        if force_abnormal == 'high':
-            # Spike to high abnormal range
-            self.wrist_temp = random.uniform(37.3, 39.0)
-        elif force_abnormal == 'low':
-            # Drop to low abnormal range
-            self.wrist_temp = random.uniform(34.0, 35.4)
+        if override_wrist is not None:
+            self.wrist_temp = float(override_wrist)
         else:
-            # Normal random walk — biased to stay in 35.5–37.0
             self.wrist_temp += random.gauss(0, 0.04)
-            # Soft boundary: gently pull back toward 36.3 if drifting out
             if self.wrist_temp > 37.0:
                 self.wrist_temp -= 0.08
             elif self.wrist_temp < 35.5:
@@ -130,19 +172,22 @@ class SensorState:
         self.ambient_temp  = clamp(self.ambient_temp, 15.0, 35.0)
         return round(self.wrist_temp, 6), round(self.ambient_temp, 6)
 
-    def tick_eda(self):
-        """Random walk EDA, 0.005–1.5 μS."""
-        if random.random() < 0.03:
-            self.eda += random.uniform(0.1, 0.4)
-        self.eda += random.gauss(0, 0.02)
-        self.eda  = clamp(self.eda, 0.005, 1.5)
+    def tick_eda(self, override_eda=None):
+        """Random walk EDA 0.005-1.5 uS. Override for alert injection."""
+        if override_eda is not None:
+            self.eda = float(override_eda)
+        else:
+            if random.random() < 0.03:
+                self.eda += random.uniform(0.1, 0.4)
+            self.eda += random.gauss(0, 0.02)
+            self.eda  = clamp(self.eda, 0.005, 1.5)
         self.eda_label = "VARIABLE" if abs(random.gauss(0, 1)) > 1.8 else "STABLE"
         return round(self.eda, 3), self.eda_label
 
 
 # ── Payload builders ─────────────────────────────────────────
-def build_eda_payload(state: SensorState):
-    conductance, label = state.tick_eda()
+def build_eda_payload(state: SensorState, override_eda=None):
+    conductance, label = state.tick_eda(override_eda)
     ts = ms_timestamp()
     return {
         "timestamp":  ts,
@@ -156,8 +201,8 @@ def build_eda_payload(state: SensorState):
     }
 
 
-def build_heart_rate_payload(state: SensorState):
-    bpm = state.tick_hr()
+def build_heart_rate_payload(state: SensorState, override_bpm=None):
+    bpm = state.tick_hr(override_bpm)
     ts  = ms_timestamp()
     return {
         "timestamp":  ts,
@@ -170,8 +215,8 @@ def build_heart_rate_payload(state: SensorState):
     }
 
 
-def build_temperature_payload(state: SensorState, force_abnormal: str = None):
-    wrist, ambient = state.tick_temp(force_abnormal)
+def build_temperature_payload(state: SensorState, override_wrist=None):
+    wrist, ambient = state.tick_temp(override_wrist)
     ts = ms_timestamp()
     return {
         "timestamp":  ts,
@@ -200,106 +245,97 @@ def main():
     print(f" Target : {URL}")
     print(f" Watch  : {WATCH_ID}")
     print("="*60)
-    print(" Rates:")
-    print("   EDA          every 1 second")
-    print("   Heart Rate   every 1 second")
-    print("   Temperature  every 1 second")
-    print(f"  Abnormal temp injected every {ABNORMAL_EVERY}s (alternates high/low)")
-    print(f"  Normal wrist range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C")
+    print(" Sensor rates : EDA / Heart Rate / Temperature every 1 second")
+    print(f" Alert sequence: fires every {ALERT_EVERY}s, cycles through 7 types")
+    print(f" Normal wrist range: {TEMP_LOW}-{TEMP_HIGH} degC")
     print(" Press Ctrl+C to stop.")
+    print("="*60)
+    print(" Alert order:")
+    for i, (t, s, m, _) in enumerate(ALERT_SEQUENCE, 1):
+        print(f"   {i}. [{s.upper()}] {t} — {m}")
     print("="*60)
 
     state = SensorState()
 
     # Send initial wear state
     print("\n[WEAR ] Sending initial WORN state...")
-    post_json(URL.replace("/api/samsung-watch", "").replace(BACKEND_URL, URL),
-              build_wear_state_payload(True))
     post_json(URL, build_wear_state_payload(True))
 
-    tick            = 0
-    last_alert      = {'temp': None}   # throttle: 'high' | 'low' | None
-    last_abnormal_t = time.time()      # time of last abnormal injection
-    abnormal_cycle  = 0                # alternates: 0=high, 1=low
+    tick           = 0
+    alert_index    = 0       # which alert fires next
+    last_alert_t   = time.time()  # time of last alert
 
     try:
         while True:
             tick += 1
             now  = time.time()
 
-            # ── Decide if this tick injects abnormal temp ────
-            force_abnormal = None
-            if now - last_abnormal_t >= ABNORMAL_EVERY:
-                force_abnormal   = 'high' if abnormal_cycle % 2 == 0 else 'low'
-                abnormal_cycle  += 1
-                last_abnormal_t  = now
-                print(f"\n{'!'*50}")
-                print(f"[INJECT] Abnormal temperature: {force_abnormal.upper()}")
-                print(f"{'!'*50}\n")
+            # ── Check if it's time to fire the next alert ────
+            override = {}  # sensor overrides for this tick
+            if now - last_alert_t >= ALERT_EVERY:
+                alert_type, severity, message, sensor_override = \
+                    ALERT_SEQUENCE[alert_index % len(ALERT_SEQUENCE)]
+                override       = sensor_override
+                alert_index   += 1
+                last_alert_t   = now
+
+                print(f"\n{'!'*60}")
+                print(f"[ALERT #{alert_index}] {severity.upper()} — {alert_type}")
+                print(f"  {message}")
+                print(f"{'!'*60}\n")
+
+                ok_alert = post_alert(alert_type, severity, message)
+                print(f"[ALERT] Sent to backend: {'OK' if ok_alert else 'FAIL'}")
 
             # ── EDA ─────────────────────────────────────────
-            payload = build_eda_payload(state)
+            payload = build_eda_payload(state, override.get('eda_value'))
             ok = post_json(URL, payload)
+            eda_val = payload['eda']['skinConductance']
+            eda_tag = ""
+            if eda_val > EDA_HIGH:
+                eda_tag = " *** HIGH STRESS ***"
+            elif eda_val < EDA_LOW:
+                eda_tag = " *** LOW STRESS ***"
             print(
                 f"[EDA  ] tick={tick:04d} "
-                f"conductance={payload['eda']['skinConductance']:.3f} \u03bcS "
-                f"label={payload['eda']['label']:<8} "
+                f"conductance={eda_val:.3f} uS "
+                f"label={payload['eda']['label']:<8}"
+                f"{eda_tag} "
                 f"{'OK' if ok else 'FAIL'}"
             )
 
             # ── Heart Rate ───────────────────────────────────
-            payload = build_heart_rate_payload(state)
+            payload = build_heart_rate_payload(state, override.get('hr_bpm'))
             ok = post_json(URL, payload)
+            bpm = payload['heartRate']['bpm']
+            hr_tag = ""
+            if bpm > HR_HIGH:
+                hr_tag = " *** HIGH ***"
+            elif bpm < HR_LOW:
+                hr_tag = " *** LOW ***"
             print(
                 f"[HR   ] tick={tick:04d} "
-                f"bpm={payload['heartRate']['bpm']} "
+                f"bpm={bpm}"
+                f"{hr_tag} "
                 f"{'OK' if ok else 'FAIL'}"
             )
 
             # ── Temperature ──────────────────────────────────
-            payload = build_temperature_payload(state, force_abnormal)
+            payload = build_temperature_payload(state, override.get('wrist_temp'))
             ok = post_json(URL, payload)
             wrist = payload['temperature']['wristSkinTemperature']
-
-            # Determine status tag for display
             if wrist > TEMP_HIGH:
-                status_tag = f"HIGH (>{TEMP_HIGH}\u00b0C) *** ALERT ***"
+                temp_tag = f" *** HIGH (>{TEMP_HIGH} degC) ***"
             elif wrist < TEMP_LOW:
-                status_tag = f"LOW (<{TEMP_LOW}\u00b0C) *** ALERT ***"
+                temp_tag = f" *** LOW (<{TEMP_LOW} degC) ***"
             else:
-                status_tag = "normal"
-
+                temp_tag = " [normal]"
             print(
                 f"[TEMP ] tick={tick:04d} "
-                f"wrist={wrist:.5f}\u00b0C "
-                f"ambient={payload['temperature']['ambientTemperature']:.5f}\u00b0C "
-                f"[{status_tag}] "
+                f"wrist={wrist:.5f} degC"
+                f"{temp_tag} "
                 f"{'OK' if ok else 'FAIL'}"
             )
-
-            # ── Temperature alert ────────────────────────────
-            if wrist > TEMP_HIGH and last_alert.get('temp') != 'high':
-                last_alert['temp'] = 'high'
-                msg = (
-                    f"High body temperature detected "
-                    f"(wrist: {wrist:.1f}\u00b0C, "
-                    f"normal range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C)"
-                )
-                ok_alert = post_alert("temperature", "warning", msg)
-                print(f"[ALERT] >>> HIGH TEMP ALERT SENT: {msg} {'OK' if ok_alert else 'FAIL'}")
-
-            elif wrist < TEMP_LOW and last_alert.get('temp') != 'low':
-                last_alert['temp'] = 'low'
-                msg = (
-                    f"Low body temperature detected "
-                    f"(wrist: {wrist:.1f}\u00b0C, "
-                    f"normal range: {TEMP_LOW}\u2013{TEMP_HIGH}\u00b0C)"
-                )
-                ok_alert = post_alert("temperature", "warning", msg)
-                print(f"[ALERT] >>> LOW TEMP ALERT SENT: {msg} {'OK' if ok_alert else 'FAIL'}")
-
-            elif TEMP_LOW <= wrist <= TEMP_HIGH:
-                last_alert['temp'] = None  # reset when back to normal
 
             time.sleep(1)
 
