@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { format, parseISO } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ScatterChart, Scatter, ZAxis } from 'recharts';
-import { X } from 'lucide-react';
+import { CalendarIcon, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { fetchMetricDetail } from '../services/api';
 
 const getMetricColor = (metric) => {
@@ -34,6 +38,7 @@ const getEdaStateLabel = (value) => {
 
 const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
   const [selectedDate, setSelectedDate] = useState('');
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['metricDetail', watchId, metric, selectedDate],
@@ -50,6 +55,7 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
   useEffect(() => {
     if (!isOpen) {
       setSelectedDate('');
+      setIsCalendarOpen(false);
     }
   }, [isOpen]);
 
@@ -60,26 +66,58 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
   const chartColor = getMetricColor(metric);
   const isEdaMetric = metric === 'eda';
   const isWearMetric = metric === 'wearStatus';
+  const availableDates = data?.availableDates || [];
+  const availableDateValues = availableDates.map((dateOption) => dateOption.value);
+  const availableDateSet = new Set(availableDateValues);
+  const selectedDateValue = selectedDate || data?.selectedDate || '';
+  const selectedDateObject = selectedDateValue ? parseISO(selectedDateValue) : undefined;
+
+  const handleDateSelect = (date) => {
+    if (!date) {
+      return;
+    }
+
+    const nextDate = format(date, 'yyyy-MM-dd');
+    if (!availableDateSet.has(nextDate)) {
+      return;
+    }
+
+    setSelectedDate(nextDate);
+    setIsCalendarOpen(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div className="flex items-center gap-3">
-            <select
-              value={selectedDate || data?.selectedDate || ''}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
-            >
-              {(data?.availableDates || []).map((dateOption) => (
-                <option key={dateOption.value} value={dateOption.value}>
-                  {dateOption.label}
-                </option>
-              ))}
-            </select>
+            <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={!availableDates.length}
+                  className="min-w-[260px] justify-start gap-2 rounded-xl border-slate-300 text-left font-normal text-slate-700"
+                >
+                  <CalendarIcon className="h-4 w-4 text-slate-500" />
+                  {selectedDateObject ? format(selectedDateObject, 'PPP') : 'Select a date with data'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto rounded-2xl p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDateObject}
+                  onSelect={handleDateSelect}
+                  defaultMonth={selectedDateObject}
+                  disabled={(date) => !availableDateSet.has(format(date, 'yyyy-MM-dd'))}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{data?.label || 'Metric'} Details</h2>
-              <p className="text-sm text-slate-500">Daily view from 00:00 to 24:00</p>
+              <p className="text-sm text-slate-500">
+                Daily view from 00:00 to 24:00{availableDates.length ? ` · ${availableDates.length} date${availableDates.length > 1 ? 's' : ''} with data` : ''}
+              </p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -109,6 +147,11 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                       : (summary.min != null && summary.max != null ? `${summary.min}-${summary.max}` : '--')}
                     {!isEdaMetric && !isWearMetric && <span className="ml-2 text-xl font-medium text-slate-500">{unit}</span>}
                   </div>
+                  {isEdaMetric && summary.rawEdaMin != null && (
+                    <div className="mt-1 text-sm text-slate-500">
+                      Raw: {summary.rawEdaMin} – {summary.rawEdaMax} µS (avg {summary.rawEdaAvg} µS)
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-xl bg-slate-50 px-5 py-4">
                   <div className="text-sm text-slate-500">{isWearMetric ? 'Latest change' : 'Latest'}</div>
@@ -117,7 +160,9 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                     {!isEdaMetric && !isWearMetric && <span className="ml-2 text-xl font-medium text-slate-500">{unit}</span>}
                   </div>
                   <div className="mt-1 text-sm text-slate-500">
-                    {summary.latestTimestamp ? `Latest value ${new Date(summary.latestTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : 'No latest value'}
+                    {isEdaMetric && summary.latestRawEda != null
+                      ? `${summary.latestRawEda} µS at ${summary.latestTimestamp ? new Date(summary.latestTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--'}`
+                      : summary.latestTimestamp ? `Latest value ${new Date(summary.latestTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : 'No latest value'}
                   </div>
                 </div>
                 <div className="rounded-xl bg-slate-50 px-5 py-4">
@@ -195,7 +240,9 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                       <Tooltip
                         formatter={(value, _, payload) => {
                           if (isEdaMetric) {
-                            return [payload?.payload?.stateLabel || getEdaStateLabel(value), 'Stress state'];
+                            const label = payload?.payload?.stateLabel || getEdaStateLabel(value);
+                            const raw = payload?.payload?.rawEda;
+                            return [raw != null ? `${label} (${raw} µS)` : label, 'EDA Stress'];
                           }
                           return [`${value} ${unit}`, data.label];
                         }}

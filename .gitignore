@@ -33,6 +33,15 @@ __pycache__/
 venv/
 env/
 
+# Java / Maven build output
+backend-springboot/target/
+backend-springboot/out/
+
+# ECG analysis generated artifacts
+ecg_analysis/analysis_results.json
+ecg_analysis/ecg_*.json
+ecg_analysis/ecg_plot_*.png
+
 # Frontend / tool cache
 .vite/
 .cache/

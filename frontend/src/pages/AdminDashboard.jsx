@@ -67,7 +67,7 @@ const AdminDashboard = () => {
     // 定义各指标的正常范围
     const ranges = {
       heartRate: { min: 60, max: 100 },
-      temperature: { min: 36.0, max: 37.5 },
+      temperature: { min: 35.0, max: 37.8 },
       eda: { min: 1.0, max: 3.5 }
     };
     

@@ -14,6 +14,8 @@ const WatchDataCard = ({
   detailText = null,
   statusDetailText = null,
   onTitleClick = null,
+  chartTooltipFormatter = null,
+  footer = null,
 }) => {
   const formattedTimestamp = readingTimestamp
     ? new Date(readingTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -69,6 +71,14 @@ const WatchDataCard = ({
   };
 
   const hasValue = !(value == null || value === '--' || Number.isNaN(value));
+
+  const formatChartTooltip = (chartValue, dataKey, entry) => {
+    if (typeof chartTooltipFormatter === 'function') {
+      return chartTooltipFormatter(chartValue, dataKey, entry?.payload);
+    }
+
+    return [unit ? `${chartValue} ${unit}` : chartValue, title];
+  };
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
@@ -126,6 +136,7 @@ const WatchDataCard = ({
               />
               <YAxis hide />
               <Tooltip 
+                formatter={formatChartTooltip}
                 contentStyle={{
                   backgroundColor: '#F9FAFB',
                   border: '1px solid #E5E7EB',
@@ -214,6 +225,12 @@ const WatchDataCard = ({
           </div>
         </>
       )}
+
+      {footer ? (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 };

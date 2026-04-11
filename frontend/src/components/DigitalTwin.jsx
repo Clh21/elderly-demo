@@ -1,21 +1,32 @@
 import React from 'react';
 import { User, Heart, Activity, Thermometer, Watch, MapPin } from 'lucide-react';
 
-const DigitalTwin = ({ watchId, watchData }) => {
+const DigitalTwin = ({ watchId, watchData, resident }) => {
+  const currentWatchId = watchId || '';
+
   const getWatchTypeColor = (watchId) => {
+    if (!watchId) {
+      return 'bg-slate-100 text-slate-600';
+    }
     return watchId.includes('demo') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
   };
 
   const getWatchTypeLabel = (watchId) => {
+    if (!watchId) {
+      return 'Unavailable';
+    }
     return watchId.includes('demo') ? 'Demo Device' : 'Real Device';
   };
+
+  const residentName = resident?.name || (currentWatchId.includes('demo') ? 'Demo Patient' : 'Assigned Resident');
+  const roomLabel = resident?.room ? `Room ${resident.room}` : 'Room unavailable';
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Digital Twin</h3>
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getWatchTypeColor(watchId)}`}>
-          {getWatchTypeLabel(watchId)}
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getWatchTypeColor(currentWatchId)}`}>
+          {getWatchTypeLabel(currentWatchId)}
         </span>
       </div>
 
@@ -24,11 +35,8 @@ const DigitalTwin = ({ watchId, watchData }) => {
         <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mx-auto mb-3 flex items-center justify-center">
           <User className="h-10 w-10 text-white" />
         </div>
-        <h4 className="font-medium text-gray-900">
-          {watchId.includes('demo') ? 'Demo Patient' : 
-           watchId.includes('john') ? 'John Doe' : 'Jane Smith'}
-        </h4>
-        <p className="text-sm text-gray-500">Watch ID: {watchId}</p>
+        <h4 className="font-medium text-gray-900">{residentName}</h4>
+        <p className="text-sm text-gray-500">Watch ID: {currentWatchId || 'Unavailable'}</p>
       </div>
 
       {/* Real-time Status */}
@@ -81,7 +89,7 @@ const DigitalTwin = ({ watchId, watchData }) => {
             <span className="text-sm font-medium">Location</span>
           </div>
           <span className="text-sm font-bold text-gray-900">
-            Room 101
+            {roomLabel}
           </span>
         </div>
       </div>

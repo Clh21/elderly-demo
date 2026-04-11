@@ -1,17 +1,33 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Download, Filter, TrendingUp } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { useAuth } from '../context/AuthContext';
 import { fetchHealthData, fetchElderlyResidents } from '../services/api';
 
 const HealthData = () => {
-  const [selectedResident, setSelectedResident] = useState('1');
+  const { user } = useAuth();
+  const [selectedResident, setSelectedResident] = useState('');
   const [timeRange, setTimeRange] = useState('7');
 
-  const { data: residents } = useQuery({
+  const { data: residents = [] } = useQuery({
     queryKey: ['residents'],
     queryFn: fetchElderlyResidents,
   });
+
+  useEffect(() => {
+    if (!residents.length) {
+      return;
+    }
+
+    const availableIds = residents.map((resident) => resident.id.toString());
+    if (!selectedResident || !availableIds.includes(selectedResident)) {
+      const defaultResidentId = user?.residentId != null && availableIds.includes(String(user.residentId))
+        ? String(user.residentId)
+        : availableIds[0];
+      setSelectedResident(defaultResidentId);
+    }
+  }, [residents, selectedResident, user]);
 
   const { data: healthData, isLoading } = useQuery({
     queryKey: ['healthData', selectedResident, timeRange],
@@ -20,6 +36,7 @@ const HealthData = () => {
   });
 
   const selectedResidentName = residents?.find(r => r.id.toString() === selectedResident)?.name || 'Unknown';
+  const hasHealthData = Array.isArray(healthData) && healthData.length > 0;
 
   const chartColors = {
     heartRate: '#EF4444',
@@ -98,9 +115,10 @@ const HealthData = () => {
               <select
                 value={selectedResident}
                 onChange={(e) => setSelectedResident(e.target.value)}
+                disabled={residents.length <= 1}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                {residents?.map(resident => (
+                {residents.map(resident => (
                   <option key={resident.id} value={resident.id}>
                     {resident.name} ({resident.watchId})
                   </option>
@@ -123,7 +141,7 @@ const HealthData = () => {
         </div>
 
         {/* Charts Grid */}
-        {healthData && (
+        {hasHealthData ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Heart Rate Chart */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -219,10 +237,14 @@ const HealthData = () => {
               </div>
             </div>
           </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center text-gray-500">
+            No historical health data is available for this resident in the selected period.
+          </div>
         )}
 
         {/* Summary Stats */}
-        {healthData && (
+        {hasHealthData && (
           <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h4 className="text-sm font-medium text-gray-600 mb-2">Avg Heart Rate</h4>

@@ -1,25 +1,68 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, Activity, Thermometer, Watch } from 'lucide-react';
 import WatchDataCard from '../components/WatchDataCard';
 import ECGCard from '../components/ECGCard';
 import ECGHistoryModal from '../components/ECGHistoryModal';
 import MetricDetailModal from '../components/MetricDetailModal';
+import EdaBaselineResultModal from '../components/EdaBaselineResultModal';
 import DigitalTwin from '../components/DigitalTwin';
 import OverviewStats from '../components/OverviewStats';
 import AlertPopup from '../components/AlertPopup';
-import { fetchWatchData, fetchOverviewStats } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { buildEdaBaseline, fetchAlerts, fetchElderlyResidents, fetchLatestAlerts, fetchOverviewStats, fetchWatchData } from '../services/api';
 
-const BASE_URL = 'http://localhost:3100/api';
+const formatDateTime = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 const Index = () => {
-  const [selectedWatch, setSelectedWatch] = useState('demo-watch-001');
+  const { user } = useAuth();
+  const [selectedWatch, setSelectedWatch] = useState(null);
   const [pendingAlerts, setPendingAlerts] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
   const [showEcgHistory, setShowEcgHistory] = useState(false);
   const [activeMetricModal, setActiveMetricModal] = useState(null);
+  const [edaBaselineFeedback, setEdaBaselineFeedback] = useState(null);
   const lastSeenAlertId = useRef(0);
   const queryClient = useQueryClient();
+
+  const { data: residents = [] } = useQuery({
+    queryKey: ['residents'],
+    queryFn: fetchElderlyResidents,
+  });
+
+  useEffect(() => {
+    if (!residents.length) {
+      return;
+    }
+
+    const availableWatchIds = residents.map((resident) => resident.watchId);
+    if (!selectedWatch || !availableWatchIds.includes(selectedWatch)) {
+      const defaultWatchId = availableWatchIds.includes(user?.watchId) ? user.watchId : availableWatchIds[0];
+      setSelectedWatch(defaultWatchId);
+    }
+  }, [residents, selectedWatch, user]);
+
+  useEffect(() => {
+    setEdaBaselineFeedback(null);
+  }, [selectedWatch]);
+
+  const selectedResident = residents.find((resident) => resident.watchId === selectedWatch) || residents[0] || null;
 
   // Fetch real-time watch data with auto-refresh every 10 seconds
   const { data: watchData, isLoading: watchLoading } = useQuery({
@@ -29,19 +72,52 @@ const Index = () => {
     enabled: !!selectedWatch,
   });
 
+  const edaBaselineMutation = useMutation({
+    mutationFn: (watchId) => buildEdaBaseline(watchId),
+    onSuccess: (result, watchId) => {
+      if (watchId !== selectedWatch) {
+        return;
+      }
+
+      setEdaBaselineFeedback({
+        ...result,
+        type: result.built ? 'success' : 'warning',
+      });
+      queryClient.invalidateQueries({ queryKey: ['watchData', watchId] });
+    },
+    onError: (error, watchId) => {
+      if (watchId !== selectedWatch) {
+        return;
+      }
+
+      setEdaBaselineFeedback({
+        watchId,
+        stageLabel: 'Build failed',
+        type: 'error',
+        message: error.message || 'Failed to build EDA baseline',
+        unmetRequirements: [],
+        selectedWindowCount: null,
+        selectedDayCount: null,
+        selectedDaypartCount: null,
+      });
+    },
+  });
+
   // Fetch overview statistics
   const { data: overviewStats, isLoading: overviewLoading } = useQuery({
     queryKey: ['overviewStats'],
     queryFn: fetchOverviewStats,
     refetchInterval: 10000,
+    enabled: user?.role === 'ADMIN',
   });
 
   // Poll for new alerts every 15 seconds
   useEffect(() => {
+    let intervalId;
+
     const checkAlerts = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/alerts/latest?after=${lastSeenAlertId.current}`);
-        const newAlerts = await res.json();
+        const newAlerts = await fetchLatestAlerts(lastSeenAlertId.current);
         if (newAlerts.length > 0) {
           lastSeenAlertId.current = newAlerts[newAlerts.length - 1].id;
           setPendingAlerts(prev => [...prev, ...newAlerts]);
@@ -57,8 +133,7 @@ const Index = () => {
     // Initialize lastSeenAlertId with the current max id to avoid showing old alerts on load
     const init = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/alerts`);
-        const all = await res.json();
+        const all = await fetchAlerts();
         if (all.length > 0) {
           lastSeenAlertId.current = Math.max(...all.map(a => a.id));
         }
@@ -66,9 +141,14 @@ const Index = () => {
     };
 
     init().then(() => {
-      const interval = setInterval(checkAlerts, 15000);
-      return () => clearInterval(interval);
+      intervalId = setInterval(checkAlerts, 15000);
     });
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, [queryClient]);
 
   const handleClosePopup = () => {
@@ -76,16 +156,71 @@ const Index = () => {
     setPendingAlerts([]);
   };
 
-  const watchOptions = [
-    { id: 'demo-watch-001', name: 'Demo Watch (Simulated)', type: 'demo' },
-    { id: 'real-watch-001', name: 'Real Watch - John Doe', type: 'real' },
-    { id: 'real-watch-002', name: 'Real Watch - Jane Smith', type: 'real' },
-  ];
+  const handleCloseEdaBaselineModal = () => {
+    setEdaBaselineFeedback(null);
+  };
+
+  const watchOptions = residents.map((resident) => ({
+    id: resident.watchId,
+    name: `${resident.name} (${resident.watchId})`,
+    type: resident.status,
+  }));
+
+  const handleBuildEdaBaseline = async () => {
+    if (!selectedWatch || edaBaselineMutation.isPending) {
+      return;
+    }
+
+    await edaBaselineMutation.mutateAsync(selectedWatch);
+  };
+
+  const edaReadingDetail = watchData?.edaRaw != null
+    ? `Raw: ${watchData.edaRaw} µS${watchData.edaLabel ? ` • Samsung label: ${watchData.edaLabel}` : ''}`
+    : (watchData?.edaLabel ? `EDA pattern: ${watchData.edaLabel}` : 'Stress state derived from electrodermal activity');
+
+  const edaBaselineSummary = watchData?.edaBaselineBuilt
+    ? `${watchData.edaBaselineStageLabel} • ${watchData.edaBaselineWindowCount || 0} windows • ${watchData.edaBaselineDayCount || 0} days • ${watchData.edaBaselineDaypartCount || 0} dayparts`
+    : 'Baseline not built yet. Current EDA interpretation is using the default thresholds.';
+
+  const builtBaselineAt = formatDateTime(watchData?.edaBaselineBuiltAt);
+  const edaBaselineStats = watchData?.edaBaselineBuilt
+    ? [
+        watchData.edaBaselineMedian != null ? `Median ${watchData.edaBaselineMedian} µS` : null,
+        watchData.edaBaselineP25 != null && watchData.edaBaselineP75 != null
+          ? `P25 ${watchData.edaBaselineP25} • P75 ${watchData.edaBaselineP75}`
+          : null,
+        builtBaselineAt ? `Built ${builtBaselineAt}` : null,
+      ].filter(Boolean).join(' • ')
+    : null;
+
+  const edaDetailText = watchData ? (
+    <div className="space-y-1">
+      <div>{edaReadingDetail}</div>
+      <div className="text-gray-500">Baseline: {edaBaselineSummary}</div>
+      {edaBaselineStats ? <div className="text-gray-400">{edaBaselineStats}</div> : null}
+    </div>
+  ) : null;
+
+  const edaFooter = watchData ? (
+    <div>
+      <button
+        type="button"
+        onClick={handleBuildEdaBaseline}
+        disabled={!selectedWatch || edaBaselineMutation.isPending}
+        className="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+      >
+        {edaBaselineMutation.isPending
+          ? 'Building EDA baseline...'
+          : (watchData.edaBaselineBuilt ? 'Rebuild EDA Baseline' : 'Build EDA Baseline')}
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       {/* Alert Popup */}
       {showPopup && <AlertPopup alerts={pendingAlerts} onClose={handleClosePopup} />}
+      <EdaBaselineResultModal feedback={edaBaselineFeedback} onClose={handleCloseEdaBaselineModal} />
       <ECGHistoryModal isOpen={showEcgHistory} onClose={() => setShowEcgHistory(false)} watchId={selectedWatch} />
       <MetricDetailModal
         isOpen={!!activeMetricModal}
@@ -98,7 +233,9 @@ const Index = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Elderly Care Dashboard</h1>
-          <p className="text-gray-600">Real-time health monitoring and emergency alerts</p>
+          <p className="text-gray-600">
+            Real-time health monitoring and emergency alerts for {selectedResident?.name || user?.residentName || 'your assigned resident'}
+          </p>
         </div>
 
         {/* Watch Selection */}
@@ -106,10 +243,12 @@ const Index = () => {
           <div className="flex items-center gap-4">
             <Watch className="h-5 w-5 text-blue-600" />
             <select
-              value={selectedWatch}
+              value={selectedWatch || ''}
               onChange={(e) => setSelectedWatch(e.target.value)}
+              disabled={watchOptions.length <= 1}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
+              {!watchOptions.length ? <option value="">No assigned watch</option> : null}
               {watchOptions.map((watch) => (
                 <option key={watch.id} value={watch.id}>
                   {watch.name}
@@ -120,7 +259,7 @@ const Index = () => {
         </div>
 
         {/* Overview Stats */}
-        {!overviewLoading && overviewStats && (
+        {user?.role === 'ADMIN' && !overviewLoading && overviewStats && (
           <div className="mb-8">
             <OverviewStats stats={overviewStats} />
           </div>
@@ -179,7 +318,13 @@ const Index = () => {
                   chartData={watchData.edaHistory}
                   readingTimestamp={watchData.edaTimestamp}
                   onTitleClick={() => setActiveMetricModal('eda')}
-                  detailText={watchData.edaLabel ? `EDA pattern: ${watchData.edaLabel}` : 'Stress state derived from electrodermal activity'}
+                  chartTooltipFormatter={(chartValue, _dataKey, point) => {
+                    const label = point?.stateLabel || watchData.edaState || chartValue;
+                    const raw = point?.rawEda != null ? `${point.rawEda} µS` : '';
+                    return [raw ? `${label} (${raw})` : label, 'EDA Stress'];
+                  }}
+                  detailText={edaDetailText}
+                  footer={edaFooter}
                 />
                 <ECGCard
                   rhythm={watchData.ecgResult}
@@ -216,7 +361,7 @@ const Index = () => {
 
           {/* Digital Twin Panel */}
           <div className="lg:col-span-1">
-            <DigitalTwin watchId={selectedWatch} watchData={watchData} />
+            <DigitalTwin watchId={selectedWatch} watchData={watchData} resident={selectedResident} />
           </div>
         </div>
       </div>

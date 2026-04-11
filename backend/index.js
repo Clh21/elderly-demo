@@ -8,15 +8,34 @@ app.use(express.json({ limit: '25mb' }));
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = Number(process.env.DB_PORT || 3306);
+const DB_NAME = process.env.DB_NAME || 'elderly';
+const DB_USERNAME = process.env.DB_USERNAME || 'root';
+const DB_PASSWORD = process.env.DB_PASSWORD || '';
+
 // ── DB connection pool ──────────────────────────────────────
 const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: 'D1aoX0137',
-  database: 'elderly',
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USERNAME,
+  password: DB_PASSWORD,
+  database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
 });
+
+const ensureAlertTypeEnum = async () => {
+  const [rows] = await pool.query("SHOW COLUMNS FROM alerts LIKE 'type'");
+  const columnType = rows[0]?.Type || '';
+  if (columnType.includes("'data_gap'")) {
+    return;
+  }
+
+  await pool.query(
+    "ALTER TABLE alerts MODIFY COLUMN type ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap') NOT NULL"
+  );
+};
 
 // ── helpers ─────────────────────────────────────────────────
 const getStatusFromValue = (metric, value) => {
@@ -722,6 +741,9 @@ const seedDemoReading = async () => {
 
 // Run once on startup only
 seedDemoReading();
+ensureAlertTypeEnum().catch((err) => {
+  console.error('[Startup] Alert enum migration failed:', err.message);
+});
 
 // ── GET /api/watch/:watchId ──────────────────────────────────
 app.get('/api/watch/:watchId', async (req, res) => {

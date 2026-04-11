@@ -2,13 +2,16 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Edit, Trash2, Search, Filter } from 'lucide-react';
 import ResidentModal from '../components/ResidentModal';
+import { useAuth } from '../context/AuthContext';
 import { fetchElderlyResidents } from '../services/api';
 
 const Residents = () => {
+  const { user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedResident, setSelectedResident] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const canManageResidents = user?.role === 'ADMIN';
 
   const { data: residents, isLoading } = useQuery({
     queryKey: ['residents'],
@@ -77,15 +80,19 @@ const Residents = () => {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Residents Management</h1>
-            <p className="text-gray-600">Manage elderly residents and their watch devices</p>
+            <p className="text-gray-600">
+              {canManageResidents ? 'Manage elderly residents and their watch devices' : 'View the resident assigned to your account'}
+            </p>
           </div>
-          <button
-            onClick={handleAddResident}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add Resident
-          </button>
+          {canManageResidents ? (
+            <button
+              onClick={handleAddResident}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add Resident
+            </button>
+          ) : null}
         </div>
 
         {/* Search and Filter */}
@@ -144,22 +151,24 @@ const Residents = () => {
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleEditResident(resident)}
-                  className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Edit className="h-4 w-4" />
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDeleteResident(resident.id)}
-                  className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </button>
-              </div>
+              {canManageResidents ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditResident(resident)}
+                    className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteResident(resident.id)}
+                    className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </button>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -171,11 +180,13 @@ const Residents = () => {
         )}
 
         {/* Resident Modal */}
-        <ResidentModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          resident={selectedResident}
-        />
+        {canManageResidents ? (
+          <ResidentModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            resident={selectedResident}
+          />
+        ) : null}
       </div>
     </div>
   );

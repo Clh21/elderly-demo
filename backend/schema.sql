@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS watch_readings (
 CREATE TABLE IF NOT EXISTS alerts (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   resident_id   INT           NOT NULL,
-  type          ENUM('heart_rate','temperature','eda','fall_detection','wear_status') NOT NULL,
+  type          ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap') NOT NULL,
   severity      ENUM('warning','critical') NOT NULL,
   message       VARCHAR(255)  NOT NULL,
   status        ENUM('active','resolved') DEFAULT 'active',
@@ -141,6 +141,35 @@ CREATE TABLE IF NOT EXISTS minute_readings (
   FOREIGN KEY (resident_id) REFERENCES residents(id) ON DELETE CASCADE
 );
 
+-- ============================================================
+-- Table: eda_baseline_profiles
+-- Stores manually built personal EDA baseline snapshots per watch
+-- ============================================================
+CREATE TABLE IF NOT EXISTS eda_baseline_profiles (
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  resident_id   INT           NOT NULL,
+  watch_id      VARCHAR(50)   NOT NULL,
+  stage         VARCHAR(24)   NOT NULL,
+  lookback_days INT           NOT NULL,
+  candidate_window_count INT  NOT NULL,
+  qualified_window_count INT  NOT NULL,
+  selected_window_count INT   NOT NULL,
+  selected_day_count INT      NOT NULL,
+  selected_daypart_count INT  NOT NULL,
+  baseline_median DECIMAL(6,3) NOT NULL,
+  baseline_p25   DECIMAL(6,3) NOT NULL,
+  baseline_p75   DECIMAL(6,3) NOT NULL,
+  selected_days_json JSON,
+  daypart_counts_json JSON,
+  rejection_counts_json JSON,
+  model_version VARCHAR(64)   NOT NULL,
+  built_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_eda_baseline_watch (watch_id),
+  INDEX idx_eda_baseline_resident (resident_id),
+  FOREIGN KEY (resident_id) REFERENCES residents(id) ON DELETE CASCADE
+);
+
 DROP PROCEDURE IF EXISTS add_column_if_missing;
 
 DELIMITER $$
@@ -202,5 +231,23 @@ CALL add_column_if_missing('minute_readings', 'ecg_heart_rate', 'DECIMAL(5,1) AF
 CALL add_column_if_missing('minute_readings', 'ecg_sample_count', 'INT AFTER `ecg_heart_rate`');
 CALL add_column_if_missing('minute_readings', 'ecg_result', 'VARCHAR(64) AFTER `ecg_sample_count`');
 CALL add_column_if_missing('minute_readings', 'raw_payload', 'JSON AFTER `battery_level_percent`');
+
+SET @alert_type_definition_sql = (
+  SELECT CASE
+    WHEN COLUMN_TYPE NOT LIKE '%''data_gap''%'
+      THEN 'ALTER TABLE `alerts` MODIFY COLUMN `type` ENUM(''heart_rate'',''temperature'',''eda'',''fall_detection'',''wear_status'',''data_gap'') NOT NULL'
+    ELSE NULL
+  END
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'alerts'
+    AND COLUMN_NAME = 'type'
+  LIMIT 1
+);
+
+SET @alert_type_definition_sql = COALESCE(@alert_type_definition_sql, 'SELECT 1');
+PREPARE stmt FROM @alert_type_definition_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 DROP PROCEDURE IF EXISTS add_column_if_missing;

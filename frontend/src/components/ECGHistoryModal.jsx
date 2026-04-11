@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Eye, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, Eye, Trash2, X } from 'lucide-react';
 import ECGWaveform from './ECGWaveform';
-import { fetchEcgHistory, fetchEcgHistoryDetail } from '../services/api';
+import { deleteEcgHistoryRecord, fetchEcgHistory, fetchEcgHistoryDetail } from '../services/api';
 
 const ECGHistoryModal = ({ isOpen, onClose, watchId }) => {
   const [page, setPage] = useState(1);
   const [selectedRecordId, setSelectedRecordId] = useState(null);
+  const [actionError, setActionError] = useState('');
+  const queryClient = useQueryClient();
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['ecgHistory', watchId, page],
@@ -19,6 +21,47 @@ const ECGHistoryModal = ({ isOpen, onClose, watchId }) => {
     queryFn: () => fetchEcgHistoryDetail(watchId, selectedRecordId),
     enabled: isOpen && !!watchId && !!selectedRecordId,
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (readingId) => deleteEcgHistoryRecord(watchId, readingId),
+    onSuccess: (_, deletedId) => {
+      if (selectedRecordId === deletedId) {
+        setSelectedRecordId(null);
+      }
+
+      if (historyData?.items?.length === 1 && page > 1) {
+        setPage((currentPage) => Math.max(1, currentPage - 1));
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['ecgHistory', watchId] });
+      queryClient.invalidateQueries({ queryKey: ['watchData', watchId] });
+      setActionError('');
+    },
+    onError: (error) => {
+      setActionError(error.message || 'Failed to delete ECG record');
+    },
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPage(1);
+      setSelectedRecordId(null);
+      setActionError('');
+    }
+  }, [isOpen]);
+
+  const handleDelete = async (readingId) => {
+    if (!readingId) {
+      return;
+    }
+
+    const confirmed = window.confirm('Delete this ECG record? This action cannot be undone.');
+    if (!confirmed) {
+      return;
+    }
+
+    await deleteMutation.mutateAsync(readingId);
+  };
 
   if (!isOpen) return null;
 
@@ -37,6 +80,12 @@ const ECGHistoryModal = ({ isOpen, onClose, watchId }) => {
           </div>
 
           <div className="p-6">
+            {actionError ? (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {actionError}
+              </div>
+            ) : null}
+
             {historyLoading ? (
               <div className="text-sm text-slate-500">Loading ECG history...</div>
             ) : historyData?.items?.length ? (
@@ -62,14 +111,25 @@ const ECGHistoryModal = ({ isOpen, onClose, watchId }) => {
                           <td className="px-4 py-3 text-sm text-slate-700">{item.ecgSampleCount ?? '--'}</td>
                           <td className="px-4 py-3 text-sm text-slate-700">{item.ecgDurationSeconds != null ? `${item.ecgDurationSeconds}s` : '--'}</td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedRecordId(item.id)}
-                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              <Eye className="h-4 w-4" />
-                              <span>View ECG</span>
-                            </button>
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedRecordId(item.id)}
+                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                <Eye className="h-4 w-4" />
+                                <span>View ECG</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(item.id)}
+                                disabled={deleteMutation.isPending}
+                                className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                <span>{deleteMutation.isPending ? 'Deleting...' : 'Delete'}</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -122,9 +182,20 @@ const ECGHistoryModal = ({ isOpen, onClose, watchId }) => {
                   {detailData?.recordedAt || detailData?.sourceTimestamp ? new Date(detailData.recordedAt || detailData.sourceTimestamp).toLocaleString() : 'Loading...'}
                 </p>
               </div>
-              <button type="button" onClick={() => setSelectedRecordId(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-6 w-6" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDelete(selectedRecordId)}
+                  disabled={deleteMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>{deleteMutation.isPending ? 'Deleting...' : 'Delete'}</span>
+                </button>
+                <button type="button" onClick={() => setSelectedRecordId(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6">

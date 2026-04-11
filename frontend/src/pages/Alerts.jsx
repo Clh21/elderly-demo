@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Clock, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { fetchAlerts } from '../services/api';
 
 const Alerts = () => {
+  const { user } = useAuth();
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const canManageAlerts = user?.role === 'ADMIN';
 
   const { data: alerts, isLoading } = useQuery({
     queryKey: ['alerts'],
@@ -101,7 +104,9 @@ const Alerts = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Alert Management</h1>
-          <p className="text-gray-600">Monitor and manage health alerts and notifications</p>
+          <p className="text-gray-600">
+            {canManageAlerts ? 'Monitor and manage health alerts and notifications' : 'Review alerts for your assigned resident'}
+          </p>
         </div>
 
         {/* Filters */}
@@ -190,7 +195,7 @@ const Alerts = () => {
                   </div>
                 </div>
                 
-                {alert.status === 'active' && (
+                {canManageAlerts && alert.status === 'active' && (
                   <div className="flex gap-2 ml-4">
                     <button
                       onClick={() => handleResolveAlert(alert.id)}
