@@ -1,533 +1,254 @@
-# Elderly Care Management System
+# Elderly Care Dashboard
 
-A real-time health monitoring system powered by **Samsung Galaxy Watch8**, providing comprehensive health management and emergency alerting for elderly residents.
-
----
-
-## Project Overview
-
-Core features of this system:
-- **Real-time Health Monitoring** — heart rate, SpO2, blood pressure, steps, calories
-- **Smart Alert System** — automatic anomaly detection with severity-graded alerts
-- **Fall Detection** — real-time fall event recognition and emergency response
-- **Sensor Analytics** — EDA stress analysis, core body temperature estimation, heart rate classification
-- **Visual Dashboard** — multi-page interactive Streamlit monitoring panel
-- **REST API** — full backend interface for third-party integration
-
----
-
-## System Architecture
+A full-stack real-time health monitoring system for elderly residents. Sensor data is collected from Samsung Galaxy Watch 8 devices, stored in a MySQL database, and displayed on a live React dashboard with automated alert popups.
 
 ```
-+-------------------------------------------------------------+
-|                  Samsung Galaxy Watch8                       |
-|         (EDA, Heart Rate, Temperature, Wear State)          |
-+------------------------+------------------------------------+
-                         | HTTP POST /watch/data
-                         v
-+-------------------------------------------------------------+
-|              Flask REST API  (Port 5000)                     |
-|  +------------------------------------------------------+   |
-|  | /api/elderly          - Resident management          |   |
-|  | /api/health           - Health data queries          |   |
-|  | /api/alerts           - Alert management             |   |
-|  | /watch/*              - Galaxy Watch data ingestion  |   |
-|  | /api/simulate/push    - Data simulation trigger      |   |
-|  +------------------------------------------------------+   |
-+------------------------+------------------------------------+
-                         |
-        +----------------+-----------------+
-        v                v                 v
-   +---------+    +--------------+  +--------------+
-   | SQLite  |    | Streamlit    |  | Data         |
-   | Database|    | Dashboard    |  | Simulator    |
-   |         |    | (Port 8501)  |  |              |
-   +---------+    +--------------+  +--------------+
+nocode/
+├── frontend/      # React + Vite web application
+├── backend/       # Express + MySQL REST API server
+├── simulator.py   # Python loopback simulator (mimics Samsung Watch 8)
+└── README.md
 ```
 
 ---
 
-## Project Structure
+## Requirements
+
+- Node.js 18+
+- Python 3.8+
+- MySQL 8.0
+- npm
+
+---
+
+## Installation
+
+### 1. Clone or download the project
+
+```bash
+cd nocode
+```
+
+### 2. Set up the MySQL database (one-time)
+
+Create the `elderly` database and apply the schema:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS elderly;"
+mysql -u root -p elderly < backend/schema.sql
+```
+
+The schema creates 5 tables and keeps 3 active dashboard users:
+- `demo-watch-001` for simulated data
+- `real-watch-001` for real watch data
+- `real-watch-002` for real watch data
+
+### 3. Install backend dependencies
+
+```bash
+cd backend
+npm install
+```
+
+### 4. Install frontend dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+---
+
+## Running the Project
+
+You need three terminal windows (or use background processes).
+
+### Terminal 1 — Backend API server
+
+```bash
+cd backend
+node index.js
+```
+
+Runs at **http://localhost:3100**
+
+On startup, the built-in Node.js simulator automatically begins generating data for `demo-watch-001`:
+- Inserts a new reading every **10 seconds** (UPSERT by minute into `minute_readings`)
+- Fires a sequential alert every **2 minutes**
+
+### Terminal 2 — Frontend dev server
+
+```bash
+cd frontend
+npm run dev
+```
+
+Runs at **http://localhost:8080**
+
+### Terminal 3 — Python Watch Simulator (optional)
+
+Simulates a Samsung Galaxy Watch 8 sending real sensor payloads to the backend:
+
+```bash
+python simulator.py
+```
+
+Press `Ctrl+C` to stop. On exit, it automatically sends an UNWORN wear state.
+
+### Terminal 4 — Indoor positioning bridge source (optional but required for indoor map)
+
+The Spring Boot backend now subscribes to MQTT indoor location topic `indoor/location/target_01` and exposes it to the frontend.
+
+To feed that topic, start your BLE positioning stack from `indoor-positioning/`:
+
+```bash
+cd indoor-positioning
+python indoor_positioning_server.py
+```
+
+If Mosquitto is not running yet, start it first.
+
+---
+
+## Features
+
+### Dashboard (Home)
+- Select between Demo Watch (Simulated), Real Watch - John Doe, and Real Watch - Jane Smith
+- 4 real-time data cards: **Heart Rate**, **Temperature**, **EDA (Stress)**, **Wear Status**
+- Each card shows the current value and a 10-point mini line chart
+- Data auto-refreshes every 10 seconds
+- **Alert popup**: when a new alert is detected, a modal appears automatically matching the app style. Close it with the X button in the top-right corner.
+- Overview stats bar: total residents, active alerts, connected devices, data points today
+
+### Indoor Position (new)
+- New navigation entry: **Indoor Position**
+- Shows room map with anchors and resident point
+- Status card and timestamp update in real time through SSE (`/api/stream/position-updates`)
+- Data source: MQTT topic `indoor/location/target_01` bridged by Spring Boot backend
+
+### Residents
+- View all registered residents with room numbers and watch IDs
+
+### Health Data
+- Historical health charts per resident (heart rate, temperature, EDA, daily steps)
+- Date range filter: last 7, 14, or 30 days
+- CSV export
+
+### Alerts
+- Full alert history with severity and status filters
+- Resolve and acknowledge actions
+- Summary cards: critical alerts, warning alerts, resolved today
+
+### Admin Dashboard
+- System-wide monitoring view across all residents
+
+---
+
+## Samsung Galaxy Watch 8 Integration
+
+The backend accepts real watch data at:
 
 ```
-project/
-├── app.py                    # Flask main application & REST API endpoints
-├── models.py                 # SQLite database initialization and connection
-├── simulator.py              # Health data simulator
-├── sensor_analysis.py        # Sensor data analysis algorithms
-├── dashboard.py              # Streamlit home page
-├── start.py                  # One-click launch script
-├── test.py                   # Test scripts
-├── elderly_care.db           # SQLite database file
-├── requirements.txt          # Python dependencies
-├── pages/                    # Streamlit multi-page app
-│   ├── 1_overview.py         # System overview page
-│   ├── 2_elderly_list.py     # Resident list management
-│   ├── 3_health_data.py      # Health data analysis
-│   ├── 4_alerts.py           # Alert management
-│   └── 5_watch_data.py       # Galaxy Watch raw data viewer
-└── README.md                 # Project documentation
+POST http://localhost:3100/api/samsung-watch?watchId=<watch_id>
 ```
+
+All payload formats from the watch are supported:
+
+```json
+// EDA
+{ "sensorType": "eda", "eda": { "skinConductance": 0.465, "label": "STABLE", "validSampleCount": 1, "sampleTimestamp": 1773125672689 } }
+
+// Heart Rate
+{ "sensorType": "heart_rate", "heartRate": { "bpm": 78, "status": 1, "sampleTimestamp": 1773125634115 } }
+
+// Temperature
+{ "sensorType": "temperature", "temperature": { "wristSkinTemperature": 33.26, "ambientTemperature": 31.14, "status": "SUCCESSFUL_MEASUREMENT" } }
+
+// Wear State
+{ "event": "wear_state", "isWorn": true, "state": "WORN" }
+```
+
+To connect a real Samsung Galaxy Watch 8, configure its HTTP sender to POST to `http://<server-ip>:3100/api/samsung-watch?watchId=<watch_id>`.
+
+Only these three watch IDs are accepted by the backend:
+- `demo-watch-001`
+- `real-watch-001`
+- `real-watch-002`
+
+If a real-watch user has no row in the database yet, the dashboard returns `No Data Available` instead of simulated data.
+
+---
+
+## Python Simulator
+
+`simulator.py` mimics the exact payload formats of a real Samsung Galaxy Watch 8 and posts them to the local backend in a loopback. It targets `demo-watch-001` by default.
+
+| Sensor | Send Rate | Notes |
+|--------|-----------|-------|
+| EDA | Every 1 second | `skinConductance` + `label` (STABLE/VARIABLE) |
+| Heart Rate | Every 3 minutes | `bpm` with realistic random walk |
+| Temperature | Every 1 minute | `wristSkinTemperature` + `ambientTemperature` |
+| Wear State | On start/stop | WORN on start, UNWORN on Ctrl+C |
+
+To change the target watch, edit `WATCH_ID` at the top of `simulator.py`.
+
+---
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/watch/:watchId` | Latest reading + 10-point minute history |
+| GET | `/api/position/latest` | Latest indoor position payload |
+| GET | `/api/stats` | Overview statistics |
+| GET | `/api/residents` | All residents |
+| GET | `/api/health/:residentId?days=7` | Daily health summary history |
+| GET | `/api/alerts` | All alerts (latest 100) |
+| GET | `/api/alerts/latest?after=<id>` | New active alerts since given ID (used for popup polling) |
+| GET | `/api/stream/position-updates` | SSE stream for indoor position updates |
+| POST | `/api/alerts/:id/resolve` | Resolve an alert |
+| POST | `/api/samsung-watch?watchId=<id>` | Ingest Samsung Watch 8 sensor payload |
+| POST | `/api/watch-reading` | Generic sensor reading ingestion |
 
 ---
 
 ## Database Schema
 
-### Core Tables
+| Table | Description |
+|-------|-------------|
+| `residents` | Resident info: name, age, room, watch ID, emergency contact |
+| `watch_readings` | Raw sensor readings — every incoming payload is stored |
+| `minute_readings` | UPSERT-by-minute: one row per watch per minute, holds the last reading of that minute |
+| `alerts` | Health alerts with type, severity, status, created/resolved timestamps |
+| `daily_summaries` | Pre-aggregated daily stats per resident for history charts |
 
-#### `elderly` — Resident Information
-```sql
-id                INTEGER PRIMARY KEY
-name              TEXT              -- Full name
-age               INTEGER           -- Age
-gender            TEXT              -- Gender
-phone             TEXT              -- Phone number
-address           TEXT              -- Address
-watch_id          TEXT UNIQUE       -- Galaxy Watch device ID
-emergency_contact TEXT              -- Emergency contact name
-emergency_phone   TEXT              -- Emergency contact phone
-status            TEXT DEFAULT 'normal'  -- Status: normal / warning / abnormal
-created_at        TEXT              -- Record creation timestamp
+### minute_readings — Storage Logic
+
+Data is written every 10 seconds but stored at 1-minute granularity. Each write in the same minute overwrites the previous row, so the final stored value for any minute is the reading from approximately the 50-second mark:
+
 ```
-
-#### `health_data` — Health Records
-```sql
-id            INTEGER PRIMARY KEY
-elderly_id    INTEGER           -- FK -> elderly.id
-heart_rate    REAL              -- Heart rate (bpm)
-blood_oxygen  REAL              -- Blood oxygen saturation (%)
-systolic      REAL              -- Systolic blood pressure (mmHg)
-diastolic     REAL              -- Diastolic blood pressure (mmHg)
-steps         INTEGER           -- Step count
-calories      REAL              -- Calorie expenditure
-latitude      REAL              -- GPS latitude
-longitude     REAL              -- GPS longitude
-location_name TEXT              -- Location label
-fall_detected INTEGER DEFAULT 0 -- Fall event flag
-activity      TEXT              -- Activity type
-recorded_at   TEXT              -- Record timestamp
-```
-
-#### `alerts` — Alert Records
-```sql
-id          INTEGER PRIMARY KEY
-elderly_id  INTEGER           -- FK -> elderly.id
-alert_type  TEXT              -- Type: Heart Rate / Blood Oxygen / Blood Pressure / Fall Detected
-severity    TEXT              -- Severity: warning / critical
-message     TEXT              -- Alert description
-is_handled  INTEGER DEFAULT 0 -- Handled flag
-handler     TEXT              -- Handler name
-handle_note TEXT              -- Handler notes
-created_at  TEXT              -- Alert creation timestamp
-handled_at  TEXT              -- Handled timestamp
-```
-
-### Galaxy Watch Sensor Tables
-
-#### `watch_eda` — Electrodermal Activity
-```sql
-id               INTEGER PRIMARY KEY
-client_ip        TEXT              -- Client IP address
-received_at      TEXT              -- Server receive timestamp
-sensor_timestamp INTEGER           -- Watch sensor timestamp
-label            TEXT              -- EDA label: STABLE / VARIABLE
-valid_samples    INTEGER           -- Valid sample count
-skin_conductance REAL              -- Skin conductance (µS)
-sample_timestamp INTEGER           -- Sample timestamp
-stress_score     REAL              -- Computed stress score (0-100)
-stress_level     TEXT              -- Stress level classification
-created_at       TEXT              -- DB insert timestamp
-```
-
-#### `watch_heart_rate` — Heart Rate Data
-```sql
-id               INTEGER PRIMARY KEY
-client_ip        TEXT              -- Client IP address
-received_at      TEXT              -- Server receive timestamp
-sensor_timestamp INTEGER           -- Watch sensor timestamp
-bpm              REAL              -- Heart rate (bpm)
-hr_status        INTEGER           -- Raw HR status code from watch
-sample_timestamp INTEGER           -- Sample timestamp
-hr_level         TEXT              -- HR level classification
-hr_severity      TEXT              -- Severity: normal / warning / critical
-created_at       TEXT              -- DB insert timestamp
-```
-
-#### `watch_temperature` — Temperature Data
-```sql
-id                  INTEGER PRIMARY KEY
-client_ip           TEXT              -- Client IP address
-received_at         TEXT              -- Server receive timestamp
-sensor_timestamp    INTEGER           -- Watch sensor timestamp
-wrist_temp          REAL              -- Wrist skin temperature (°C)
-ambient_temp        REAL              -- Ambient temperature (°C)
-estimated_core_temp REAL              -- Estimated core body temperature (°C)
-heat_gradient       REAL              -- Heat gradient (wrist - ambient)
-temp_status         TEXT              -- Status: Normal / Fever / High Fever / Low / Hypothermia Risk
-created_at          TEXT              -- DB insert timestamp
-```
-
-#### `watch_wear_state` — Wear State
-```sql
-id               INTEGER PRIMARY KEY
-client_ip        TEXT              -- Client IP address
-received_at      TEXT              -- Server receive timestamp
-sensor_timestamp INTEGER           -- Watch sensor timestamp
-is_worn          INTEGER           -- Worn flag: 1 = worn, 0 = not worn
-state            TEXT              -- State string from watch
-created_at       TEXT              -- DB insert timestamp
+15:00:00  write  ->  minute_slot '15:00:00'  (row created)
+15:00:10  write  ->  minute_slot '15:00:00'  (overwritten)
+15:00:20  write  ->  minute_slot '15:00:00'  (overwritten)
+...
+15:00:50  write  ->  minute_slot '15:00:00'  (final value for this minute)
+15:01:00  write  ->  minute_slot '15:01:00'  (new minute, new row)
 ```
 
 ---
 
-## Getting Started
-
-### Requirements
-- Python 3.8+
-- pip
-
-### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-| Package | Version | Purpose |
-|---|---|---|
-| flask | 3.0.0 | Web framework |
-| flask-cors | 4.0.0 | Cross-origin resource sharing |
-| streamlit | 1.29.0 | Dashboard framework |
-| pandas | 2.1.4 | Data processing |
-| plotly | 5.18.0 | Interactive charts |
-| requests | 2.31.0 | HTTP client |
-| numpy | 1.26.2 | Numerical computing |
-| Werkzeug | 3.0.1 | WSGI utilities |
-
-### One-click Launch
-
-```bash
-python start.py
-```
-
-Launch sequence:
-1. Initialize SQLite database and seed demo data
-2. Start Flask API at `http://127.0.0.1:5000`
-3. Start data simulator (pushes readings every 8 seconds)
-4. Start Streamlit dashboard at `http://localhost:8501`
-
-Expected output:
-```
-====================================================
-   Elderly Care System -- One-click Launch
-====================================================
-[1/4] Initializing database...
-[2/4] Starting Flask backend...
-[3/4] Starting data simulator...
-[4/4] Starting Streamlit Dashboard...
-
-====================================================
-  Flask  API  : http://127.0.0.1:5000
-  Dashboard   : http://localhost:8501
-====================================================
-Open http://localhost:8501 in your browser.
-Press Ctrl+C to stop.
-```
-
-### Access the App
-
-Open **http://localhost:8501** in your browser.
-
----
-
-## REST API Reference
-
-### Overview
-
-```http
-GET /api/overview
-```
-
-Response:
-```json
-{
-  "total": 5,
-  "normal": 3,
-  "warning": 1,
-  "abnormal": 1,
-  "unhandled_alerts": 2,
-  "critical_alerts": 1,
-  "today_alerts": 5,
-  "today_data_count": 120
-}
-```
-
-### Resident Management
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/elderly` | List all residents with latest vitals |
-| GET | `/api/elderly/<id>` | Get single resident |
-| POST | `/api/elderly` | Add new resident |
-| PUT | `/api/elderly/<id>` | Update resident info |
-| DELETE | `/api/elderly/<id>` | Delete resident and all related data |
-
-**Add resident (POST body):**
-```json
-{
-  "name": "John Doe",
-  "age": 80,
-  "gender": "Male",
-  "phone": "555-0100",
-  "address": "606 Birch St, Springfield",
-  "watch_id": "WATCH-006",
-  "emergency_contact": "Jane Doe",
-  "emergency_phone": "555-0101"
-}
-```
-
-### Health Data
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/health/<id>?hours=24` | Historical records (up to 500 rows) |
-| GET | `/api/health/<id>/latest` | Latest single reading |
-| GET | `/api/health/<id>/stats?hours=24` | Aggregated statistics |
-
-**Stats response:**
-```json
-{
-  "avg_hr": 75.3, "min_hr": 62.1, "max_hr": 88.5,
-  "avg_spo2": 97.8, "min_spo2": 96.2,
-  "avg_sbp": 125.4, "avg_dbp": 78.2,
-  "total_steps": 5420, "total_calories": 245.3,
-  "fall_count": 0
-}
-```
-
-### Alert Management
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/alerts` | List alerts (supports `severity`, `is_handled`, `limit` filters) |
-| PUT | `/api/alerts/<id>/handle` | Mark alert as handled |
-
-**Handle alert (PUT body):**
-```json
-{
-  "handler": "Nurse Jane",
-  "note": "Patient checked, vitals stabilized."
-}
-```
-
-### Galaxy Watch Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/watch/data` | Receive sensor payload from watch |
-| GET | `/watch/heart_rate?limit=200` | Recent HR records |
-| GET | `/watch/eda?limit=200` | Recent EDA records |
-| GET | `/watch/temperature?limit=200` | Recent temperature records |
-| GET | `/watch/wear_state` | Latest wear state |
-
-**Watch data payload example:**
-```json
-{
-  "client": "192.168.1.100",
-  "receivedAt": "2024-03-15T14:30:45",
-  "payload": {
-    "timestamp": 1710508245000,
-    "heartRate": { "bpm": 75, "status": 0 },
-    "eda": { "skinConductance": 2.5, "label": "STABLE", "validSampleCount": 30 },
-    "temperature": { "wristSkinTemperature": 33.5, "ambientTemperature": 22.0 },
-    "event": "wear_state", "isWorn": true, "state": "ON_WRIST"
-  }
-}
-```
-
-### Simulation
-
-```http
-POST /api/simulate/push
-```
-Pushes one simulated reading for every resident (25 % chance of abnormal values).
-
----
-
-## Sensor Analysis Algorithms
-
-### EDA — Electrodermal Activity
-
-Estimates stress level from skin conductance measured by the Galaxy Watch (~30 samples per 10-minute window).
-
-**Scoring formula:**
-```
-stress_score = tonic_score + phasic_score + label_score
-
-tonic_score  = sigmoid(mean_sc,  midpoint=1.5, steepness=1.2) × 60
-phasic_score = sigmoid(std_sc,   midpoint=0.5, steepness=2.0) × 25
-label_score  = variable_ratio × 15
-```
-
-**Stress level thresholds:**
-
-| Score | Level |
-|---|---|
-| 0 – 19 | Relaxed |
-| 20 – 39 | Calm |
-| 40 – 59 | Moderate |
-| 60 – 79 | Stressed |
-| 80 – 100 | High Stress |
-
-### Core Temperature Estimation
-
-Derived from wrist skin temperature and ambient temperature (Buller et al. 2013 / ISO 9886).
-
-```
-core_temp = wrist_temp + 4.5 + 0.15 × (wrist_temp − ambient_temp)
-```
-
-| Core Temp | Status |
-|---|---|
-| ≥ 39.0 °C | High Fever |
-| 37.5 – 39.0 °C | Fever |
-| 36.1 – 37.5 °C | Normal |
-| 35.0 – 36.1 °C | Low |
-| < 35.0 °C | Hypothermia Risk |
-
-### Heart Rate Classification
-
-Age-adjusted thresholds (max HR = 220 − age, default age 75).
-
-| BPM Range | Level | Severity |
-|---|---|---|
-| < 40 | Bradycardia (Severe) | critical |
-| 40 – 49 | Bradycardia | warning |
-| 50 – 59 | Low Normal | normal |
-| 60 – 99 | Normal | normal |
-| 100 – 109 | Elevated | warning |
-| 110 – 129 | Tachycardia | critical |
-| ≥ 130 | Tachycardia (Severe) | critical |
-
----
-
-## Alert Rules
-
-### Heart Rate
-| Condition | Severity |
-|---|---|
-| HR < 50 bpm | Critical |
-| HR > 110 bpm | Critical |
-| 100 < HR ≤ 110 bpm | Warning |
-
-### Blood Oxygen
-| Condition | Severity |
-|---|---|
-| SpO2 < 90 % | Critical |
-| 90 % ≤ SpO2 < 94 % | Warning |
-
-### Blood Pressure
-| Condition | Severity |
-|---|---|
-| Systolic > 180 mmHg | Critical |
-| 160 < Systolic ≤ 180 mmHg | Warning |
-| Systolic < 90 mmHg | Critical |
-
-### Fall Detection
-| Condition | Severity |
-|---|---|
-| Fall event detected | Critical |
-
----
-
-## Dashboard Pages
-
-| Page | File | Description |
-|---|---|---|
-| Home | `dashboard.py` | Landing page with navigation cards |
-| Overview | `pages/1_overview.py` | Live stats, status pie chart, HR bar chart, quick actions |
-| Resident List | `pages/2_elderly_list.py` | Add / edit / delete residents, bind Watch IDs |
-| Health Data | `pages/3_health_data.py` | HR & SpO2 trends, blood pressure, steps, fall events |
-| Alert Management | `pages/4_alerts.py` | View, filter and handle alerts |
-| Watch Live | `pages/5_watch_data.py` | Raw Galaxy Watch sensor streams (HR, EDA, temperature) |
-
----
-
-## Demo Seed Data
-
-Automatically inserted on first run:
-
-| ID | Name | Age | Gender | Watch ID | Location |
-|---|---|---|---|---|---|
-| 1 | George Smith | 78 | Male | WATCH-001 | Springfield |
-| 2 | Mary Johnson | 82 | Female | WATCH-002 | Shelbyville |
-| 3 | Helen Williams | 75 | Female | WATCH-003 | Capital City |
-| 4 | Robert Brown | 80 | Male | WATCH-004 | Ogdenville |
-| 5 | Dorothy Davis | 73 | Female | WATCH-005 | North Haverbrook |
-
----
-
-## Development Guide
-
-### Add a new alert rule
-
-Edit `_check_and_alert()` in `simulator.py`:
-```python
-if data["your_field"] > THRESHOLD:
-    alerts.append((eid, "Alert Type", "critical", "Alert message"))
-```
-
-### Add a new API endpoint
-
-Edit `app.py`:
-```python
-@app.get("/api/your-endpoint")
-def your_endpoint():
-    conn = get_conn()
-    # your logic
-    conn.close()
-    return jsonify(result)
-```
-
-### Add a new dashboard page
-
-Create `pages/6_your_page.py`:
-```python
-import streamlit as st
-st.set_page_config(page_title="Your Page", page_icon="📊")
-st.title("Your Page Title")
-```
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| Database locked error | Ensure only one process accesses the DB; restart the app |
-| Port 5000 already in use | Change the port in `app.py` or kill the occupying process |
-| Streamlit cannot reach Flask | Confirm Flask is running; check firewall / antivirus settings |
-| Watch data not received | Check Watch network connectivity and that port 5000 is reachable |
-
----
-
-## Tech Stack
-
-| Component | Technology | Version |
-|---|---|---|
-| Backend | Flask | 3.0.0 |
-| Dashboard | Streamlit | 1.29.0 |
-| Database | SQLite | built-in |
-| Data processing | Pandas | 2.1.4 |
-| Charts | Plotly | 5.18.0 |
-| Numerical computing | NumPy | 1.26.2 |
-| HTTP client | Requests | 2.31.0 |
-
----
-
-## License
-
-This project is open source and free to use.
-
----
-
-**Last updated:** March 15, 2024 | **Status:** Production Ready
+## Automated Alert Sequence
+
+The backend simulator fires alerts every 2 minutes in a fixed cycle:
+
+| # | Type | Severity | Message |
+|---|------|----------|---------|
+| 1 | Heart Rate | Warning | High heart rate detected (115 bpm) |
+| 2 | Heart Rate | Warning | Low heart rate detected (42 bpm) |
+| 3 | Temperature | Warning | High body temperature detected (38.6°C) |
+| 4 | Temperature | Warning | Low body temperature detected (35.1°C) |
+| 5 | EDA | Warning | High stress level detected (EDA: 5.2 uS) |
+| 6 | EDA | Warning | Low stress level (EDA: 0.3 uS) |
+| 7 | Fall Detection | Critical | Fall detected! Immediate attention required |
+
+When an alert fires, the dashboard frontend automatically shows a popup modal within 15 seconds.

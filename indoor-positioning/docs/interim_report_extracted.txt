@@ -1,0 +1,1041 @@
+﻿The Hong Kong Polytechnic University
+Department of Computing
+COMP5926 Metaverse Project I
+Interim
+ Report
+Digital Twin for 
+Elderly Home
+ 
+Service
+Student Name/ID No.: 
+Chen 
+Zhuokai
+ (
+25106193G
+)
+                                     
+Chen Lihao
+ (25054213G)
+                                     
+Peng
+ 
+Liangqian
+ (25051229G)
+                                     
+ZHANG Yuanlin
+ (
+25104351G
+)
+Supervisors:                  
+Dr. Walter Fung
+              
+Submission Date:          
+20
+ 
+March
+ 202
+6
+Abstract
+Content
+Keywords: Digital Twin, Elderly Home Service, Anomaly Detection
+Catalogue
+Abstract
+2
+1. Introduction
+5
+2. Literature Review
+6
+2.1 Wearable device for Continuous Physiological Monitoring
+6
+2.1.1 Electrodermal Activity (EDA)
+6
+2.1.2 Photoplethysmography (PPG) and Heart Rate
+7
+2.1.3 Electrocardiography (ECG)
+7
+2.1.4 Skin Temperature
+7
+3. Methodology
+9
+3.1 System Overview
+9
+3.2 Hardware and Development Environment
+9
+3.2.1 Sensing Device
+9
+3.2.2 Watch Application
+9
+4. Evaluation
+12
+5. Conclusion and Future Work
+13
+7. Reference
+14
+List of Figures
+Figure 3. 1
+10
+Figure 3. 2
+11
+List of 
+Tables
+Table 3. 1
+9
+1
+. 
+Introduction
+Content
+2. 
+Literature Review
+2.1 Wearable device for Continuous Physiological Monitoring
+Health monitoring is an 
+essential
+ part of care for 
+patient
+ in 
+the hospitals
+. It requires lots of devices and equipment to ensure accuracy of monitoring. With the development of 
+lightweight聽
+hardware, monitoring modules are possible to integrate into a wearable device
+鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">the smart watch. This 
+advancement聽
+has enabled smartwatches to perform physiological monitoring, they can roughly obtain physiological status, and able to acquire 
+continuous
+ and unobtrusive physiological signals outside clinical settings 
+(Piwek et al., 2016)
+. Unlike traditional physiological monitoring assessments, which are constrained by temporal and 
+environmental
+ limitations, wearable devices can capture more physiological states during daily life (
+Steinhubl et al., 2015)
+. This 
+advancement
+ shifts continuous monitoring from hospital room into our daily lives. 
+The real
+-time physiological assessment alert people to 
+aware
+ potential health 
+risk
+ and assist them when illness occurs. 
+Modern wearable devices integrate 
+multiple
+ biometric sensors onto a single, compact platform. 
+Majumder et al. (2017) 
+provide
+ a comprehensive review
+ of wearable 
+sensor
+, identifying optical (
+photoplethysmography
+, PPG), 
+electrodermal (
+EDA, 
+galvanic skin response)
+, thermal and 
+electrical
+ (
+electrocardiography
+, ECG) 
+transducers
+ as the primary means of non-invasive 
+physiological data acquisition.
+ 
+Dias and Paulo Silva Cunha (2018)
+ 
+further categori
+z
+e wearable vital-sign monitoring systems by signal type
+ and clinical application, indicating that 
+multiple
+ sensor types on a single wearable device enables the capture of 
+cardiovascular, thermoregulatory, and electrodermal signals
+. The 
+integration
+ of 
+these
+ sensor streams within a unified 
+hardware
+ platform represents a technical advancement. 
+Multiple researches of 
+continuous
+ wearable physiological monitoring have demonstrated its value in health domains. 
+Bayoumy et al. (2021)
+ document the growing role of smartwatch 
+in cardiovascular care
+, highlighting their capacity for 
+rhythm monitoring, arrhythmia detection
+ 
+and haemodynamic assessment
+ for general populations. 
+Beyond cardiology
+, 
+Mohr et al. (2017)
+ argue that 
+physiological and behavioral data
+ which are sensed from wearable devices can assist to evaluate mental health, enabling the detection of pressure, 
+emotional dysregulation, and psychiatric relapse
+.
+2.1.1 
+Electrodermal Activity (EDA)
+Electrodermal activity (EDA), also referred to as galvanic skin response (GSR)
+, 
+is a measure of the electrical conductance of the skin
+, it may varies due to the function of 
+eccrine sweat gland activity.
+ 
+Because eccrine glands are innervated by the sympathetic branch of the autonomic nervous system (ANS), EDA constitutes a direct, peripheral index of sympathetic arousal 
+uncontaminated by parasympathetic influence (Boucsein, 2012).
+ 
+The EDA signal
+ can be decomposed into two components: the 
+termed skin conductance level (SCL)
+, which 
+reflects
+ 
+baseline autonomic arousal;
+ 
+and the phasic component
+, including 
+discrete skin conductance responses (SCRs) time-locked to specific stimuli or stressors (Dawson et al., 2017)
+. 
+EDA is widely used as 
+physiological correlate of psychological stress, emotional reactivity, cognitive load, and attentional engagement (Critchley, 2002).
+ Due to its high 
+temporal sensitivity
+,
+ 
+phasic responses typically
+ 
+onset within 1鈥? seconds
+ 
+of a sympathetic stimulus
+, which is suited to 
+event-locked experimental paradigms
+, and the 
+tonic
+ parts captures sustained 
+autonomic state across longer 
+periods
+.
+2.1.2 
+Photoplethysmography (PPG) and Heart Rate
+Photoplethysmography (PPG) is an optical sensing technique
+ that infers 
+cardiovascular dynamics
+, which can tell 
+pulsatile changes in blood volume (Allen, 2007).
+ Wearable devices apply reflectance-mode PPG, in which 
+light-emitting diodes (typically green, 520鈥?30 nm) project into the skin
+. Combine with 
+photodetectors
+, it captures 
+backscattered ligh
+t. A
+bsorption peaks
+ are related to 
+systolic cardiac cycles
+, 
+from which instantaneous heart rate (HR) and inter-beat interval (IBI) sequences are derived.
+ 
+Beyond HR estimation
+, 
+PPG-derived IBI series
+ are used as input for hear rate variability (HRV) analysis, which 
+quantif
+ies 
+autonomic modulation of cardiac rhythm
+. 
+The accessibility and low power consumption of PPG make it 
+became a popular 
+cardiac sensing 
+approach
+ in commercial wearable platforms.
+2.1.3 
+Electrocardiography (ECG)
+E
+lectrocardiogram (ECG)
+ records 
+the electrical potentials
+ 
+generated by myocardial depolarisation and repolarisation across each cardiac cycle
+, forming a 
+morphologically rich signal
+ containing t
+he P wave, QRS complex, and T wave
+. In clinical 
+practice
+, ECG 
+constitutes the gold standard for arrhythmia detection, ischaemia assessment, and cardiac conduction analysis (Kligfield et al., 2007).
+ In 
+research
+ application, 
+single-lead ECG acquired from
+ wearable devices enables high-fidelity 
+extraction of R-R intervals鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> the standard input for HRV computation, which is better than IBI sequences 
+(Georgiou et al., 2018).
+ 
+The integration of single-lead ECG capability within
+ wearable consumer devices represents a significant advancement over PPG-Only products, 
+allowing for the acquisition of
+ research level cardiac signal become possible.
+2.1.4 
+Skin Temperature
+Skin temperature (SKT) reflects the net balance between
+ 
+peripheral heat production
+ 
+and heat dissipation
+ 
+(Charkoudian, 2003)
+. 
+Under conditions of psychological stress or sympathetically mediated arousal
+, 
+peripheral vasoconstriction reduces cutaneous blood flow
+, 
+producing a characteristic decrease in distal skin temperature
+, observation in wrist and fingertip are more 
+reliable 
+(Vinkers et al., 2013).
+ 
+Conversely
+, 
+thermoregulatory demands such as exercise or elevated ambient temperature elicit vasodilation and a corresponding rise in skin temperature.
+ 
+In affective computing and stress research, SKT has been
+ considered as a 
+complementary autonomic index alongside EDA and HRV
+, 
+with the combination of these modalitie
+s, it much better than any other single signal 
+(Wijsman et al., 2011).
+ 
+Continuous
+ wearable SKT 
+acquisition
+ is 
+straightforward
+, 
+requiring
+ 
+only a thermistor
+ 
+or infrared senso
+r for 
+contact with the skin
+. Compared with optical or electrical sensors, the power cost is low.
+2.2 Digital Twin Applications in Elderly Care
+Elderly care has become a major focus point for digital twin technology. This technology creates virtual versions of elderly residents that accurately reflect their current physical and physiological condition. Also, unlike the previous static monitoring systems, the digital twin technology for elderly care uses multi-source sensor data, behavioral pattern data, and environmental data to create a complete digital representation of an individual elderly resident that is updated in real-time to match the current health status for that individual elderly resident. In a residential care facility, this technology allows care workers to identify potential health risks (e.g. cardiovascular anomalies or falls) at a much earlier stage as they analyze longer-term health trends thereby allowing for more efficient use of available resources. In studies that have recently been completed, the findings confirmed that the care of elderly individuals using the digital twin-based care systems resulted in reduced emergency hospital admissions and more efficient use of resources on a daily basis for the elderly. The technical basis of these systems relies upon the use of real-time data ingestion protocols, intellectual collaborative processing at the edge and in the cloud, and intellectual anomaly detection; these will be critical to 
+bridging
+ the gap between data collection and actionable care decisions for the elderly living in long-term care homes (Liu, et al., 2019).
+2.2.1 Personalized Health Baseline Establishment via Multi-Source Data Fusion
+Digital twin technology can be utilised to create tailored health baselines for each individual residing within the elderly care sector. As a foundation to health analysis and anomaly detection, digital twins utilise and integrate multiple sources of information, such as real-time physiological information (i.e. data from wearable devices) and behavioural/activity data from ambient sensing (i.e. indoor movement or activity duration) in order to generate a digital profile that is unique to each resident. This digital profile is continuously updated as new data is captured through ongoing collecting, which allows adjustment due to gradual changes in physiology and activity level. For example, an elderly person may experience decreasing mobility because of their age, which would result in decreased heart rate baselines for that particular elderly person's chronic 
+disease management. In this way, when conducting health analysis using this designed baseline of an elderly resident, there will not be general population thresholds used and therefore, there is an accurate measurement from which to assess deviation (from what is considered normal) regarding health and behavioural 
+state;
+ allowing for the basis of a more contextually relevant assessment.
+2.2.2 Real-Time and Longitudinal Health Data Analysis for Trend Identification
+Digital twin technology enables the ability to perform both in-depth real-time analyses and longitudinal studies of health data; the ability to analyze health data on a proactive basis for elderly individuals will go far beyond traditional retrospective studies performed after an unexpected event has occurred. Real-time data analysis takes advantage of a digital twin
+鈥?/w:t></w:r><w:proofErr w:type="gramEnd"/><w:r w:rsidRPr="00E753E3"><w:rPr><w:rStyle w:val="Content0"/><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">s ability to synchronize a wide range of low-latency types of incoming physiological and 
+behavioural
+ data in real-time, which allows caregivers to have an ongoing record of the current status of each elderly individual
+鈥?/w:t></w:r><w:proofErr w:type="gramEnd"/><w:r w:rsidRPr="00E753E3"><w:rPr><w:rStyle w:val="Content0"/><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">s health, including things like sudden increases or decreases in heart rate, increased levels of stress based on changes in EDA, and abnormal periods of inactivity in a specific location inside the home, among other things, and would thereby allow caregivers to immediately identify potential acute health concerns for each individual. Conversely, longitudinal analysis involves the extraction and analysis of historical data that has been stored in the digital twin over a longer period of time (weeks, months, or even longer), which allows caregivers to be able to identify long-term trends in the health and 
+behaviour
+ of each elderly individual that may not be detected from short-term data, such as declining levels of physical activity over time, increasing levels of resting heart rate over time, or increasing amounts of time spent in a sedentary position. Long-term trend analysis will provide actionable insights into the long-term trends in the health of the elderly individuals for whom caregivers are responsible, allowing them to be able to facilitate early intervention with respect to any potentia
+l emerging chronic illnesses, and allow for modifications of a caregiver
+鈥?/w:t></w:r><w:proofErr w:type="gramEnd"/><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t>s plan of care according to an individual
+鈥?/w:t></w:r><w:proofErr w:type="gramEnd"/><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t>s evolving needs over time, rather than merely responding to acute health crises.
+2.2.3 Visualization of Health and Behavioral Data via Integrated Dashboard Interfaces
+Digital twin technology has a crucial real-world application in providing elderly care, specifically by creating intuitive, human-friendly visualizations of complicated data coming from many sources, integrating data with integrated dashboard interfaces, and allowing both the digital twin system and caregivers to communicate data effectively. Digital twin dashboards are where caregivers interact with the digital twin system (humans interacting with computers) through aggregated and real-time tracking of physiological measurements (e.g., heart rate, blood oxygen level, skin temperature), behavioral activity data (such as indoor location with movement 
+heat maps and daily activity totals), anomaly alerts, and trend data in one customizable user interface. Therefore, when caregivers view data on the digital twin dashboard, they see all data integrated into a single user interface instead of independently displayed data from multiple single-function monitoring devices. An example of integration could be displaying the elderly care recipient's real-time heart rate data on top of the elderly
+鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t>s virtual avatar on the digital twin's 3D representation of the elderly's home, or comparing heart rate trend data with daily activity duration using line and bar graphs on the same dashboard. Delivering visualizations that are less cognitively loaded allows caregivers to accurately assess the current health status of their elderly care client quickly and make efficient decisions regarding the type, timing, and/or method of delivering care to that client. Additionally, dashboard capabilities to filter and drill down through the data allow caregivers to view specific physiological factors or periods of time to conduct further in-depth assessments of client health status (Ahmadi
+鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t>Assalemi et al., 2020).
+2.
+3
+ Indoor Positioning Technologies for Elderly Monitoring
+Accurate indoor localization is a foundational requirement for in-home elderly monitoring systems, as the position of an individual within their residence provides essential context for detecting abnormal behaviors such as prolonged immobility, falls, or deviation from daily routines. Unlike outdoor environments where Global Positioning System (GPS) provides reliable tracking, indoor settings present significant challenges due to signal attenuation, multipath propagation, and non-line-of-sight conditions caused by walls, furniture, and other structural elements (
+Alarifi
+ et al., 2016). Consequently, a range of alternative indoor positioning technologies have been explored in the research literature, each offering different trade-offs among accuracy, cost, power consumption, and privacy preservation.
+2.
+3
+.1 Comparison of Indoor Positioning Technologies
+In recent years, various indoor wireless positioning technologies 
+have been
+ proposed, including Wi-Fi, RFID, UWB and BLE. While the method based on Wi-Fi signals 
+has to
+ utilize the current Wi-Fi infrastructure which only achieves the room level location accuracy using location fingerprinting, 
+it also consumes large amounts of
+ 
+energy and
+ has large fluctuation in received signal strength indicator (RSSI) indoors (Farid et al., 2013). Moreover, although RFID has a low cost for each tag, it also 
+needs
+ special reader 
+equipment and
+ can only detect the signal in a limited range. 
+So,
+ the whole home area 
+cannot
+ be covered using RFID technology (
+Alarifi
+ et al., 2016). Another method is using UWB signals, which can realize centimeter-level precise location in the indoor environment through calculating the time-of-flight for the UWB signal. However, there is still a high cost, large energy consumption for UWB technology, which does not meet the demand for home-based elderly monitoring, especially for a long period (Wang et 
+al., 2014). So BLE technology can achieve better performance than the above five methods in terms of energy consumption, price, number of indoor 
+devices
+ adopting BLE technology, and localization precision for home-based elderly monitoring, and has the corresponding location accuracy of room level and zone level.
+Table 2.1
+Comparison of Indoor Positioning Technologies for Home Environments
+Technology
+Accuracy
+Cost
+Power
+Infrastructure
+Privacy
+Wi-Fi
+3鈥? m
+Low
+High
+Existing APs
+Preserved
+BLE RSSI
+1.5鈥? m
+Very low
+Very low
+BLE beacons
+Preserved
+UWB
+10鈥?0 cm
+High
+Medium
+UWB anchors
+Preserved
+RFID
+1鈥? m
+Medium
+Low (passive)
+RFID readers
+Preserved
+Camera
+< 0.5 m
+Medium
+High
+Cameras
+Invasive
+Note. 
+Accuracy
+ 
+represents
+ typical ranges reported in residential deployments. Camera-based methods are included for completeness but are excluded from this project due to privacy concerns.
+2.
+3
+.2 BLE RSSI-Based Indoor Positioning
+BLE-based indoor positioning systems most often rely on two types of algorithms: distance-based trilateration and fingerprinting-based classification. With trilateration, the Received Signal Strength Indicator (RSSI) of the BLE signals transmitted by the anchor nodes are used to estimate the distances to the target device. By using a 
+long
+-distance path loss model, the RSSI measurements can be transformed into an estimation of the distance between the device and each anchor node (Faragher & Harle, 2015). The 
+long
+-distance path loss model follows the equation RSSI = A 鈭?10n路log鈧佲個(d), where A is the RSSI measured at one meter, n is the path loss exponent which is specific to the surrounding space and d is the distance between the transmitter and receiver. However, due to the multipath fading effects caused by obstacles such as furniture, human bodies and echoes, the noise in the RSSI signal causes a large deviation in the distance estimation.
+Signal Smoothing Using Kalman Filter Algorithm 
+RSSI
+ often have tendency to fluctuate. Several 
+research
+ employ Kalman filter as a method to smooth those signals. Authors in Gomez-de-Gabriel et al. 
+(2018
+) propose 
+a
+ approach that utilizing the channel diversity method along with Kalman filter and weighted trilateration to achieve an accuracy of 1.82 meters for mobile objects in medium size indoor area and 0.7 meters for static objects. Another paper by 
+Dwiputranto
+ et al. 
+(2023
+) mentions that a method to apply a Kalman filter to the raw BLE RSSI data is capable of improve the location accuracy from 0.90 m to 0.78 m and precision from 0.36 m to 0.23 m when applied with min-max trilateration.
+While BLE RSSI trilateration alone provides zone-level accuracy sufficient for identifying which room an elderly individual occupies, finer-grained status 
+determinations 
+such as distinguishing whether a person is lying on a bed versus lying on the floor 
+beside 
+requires additional sensing modalities. Perez-Navarro et al. (2020) compared Wi-Fi and BLE based indoor positioning systems in real residential scenarios for monitoring older adults and found that BLE-based approaches, when combined with environmental context, provided more reliable room-level detection than Wi-Fi fingerprinting alone. Gomez-de-Gabriel et al. (2018) demonstrated that integrating channel diversity with Kalman filtering and weighted trilateration achieved positioning accuracy of 0.7 meters for static targets and 1.82 meters for moving targets in BLE-based systems.
+The integration of PIR sensors provides binary room-level presence detection with high temporal responsiveness, while pressure sensors embedded in furniture offer definitive confirmation of specific posture states such as sitting on a sofa or lying in bed. By combining these complementary data sources through a hierarchical fusion strategy, the system can overcome the inherent limitations of any single sensing modality and provide the contextual awareness necessary for reliable abnormal behavior detection in elderly home service applications.
+2.
+3
+.3 Multi-Sensor Fusion for Improved Localization
+BLE RSSI trilateration yields only zone level location accuracy that can determine which room an elderly person is in. 
+However,
+ finer granularity of status such as on a bed versus lying on the floor next to the bed requires the incorporation of other modalities. Perez-Navarro et al. 
+(2020
+) in their research investigated and compared Wi-Fi and BLE based indoor location technologies in real residential environments for the monitoring of elderly 
+people,
+ and they found that BLE-based approaches with contextual information provided more accurate room-level location than Wi-Fi fingerprinting method. Gomez-de-Gabriel et al. 
+(2018
+) in their work developed an approach by integrating channel diversity with Kalman filtering and weighted trilateration to achieve an accuracy of 0.7 meters for static objects and 1.82 meters for moving objects in BLE-based systems.
+This work presents a complete sensor system and details on its implementation for monitoring dynamic aspects of the daily lives of the elderly. We have integrated temperature and PIR sensors to obtain at each room level a binary presence signal with high timing resolution. At the furniture level, pressure sensors permit us to obtain information on those situations where the 
+room occupation signals might need some more 
+details
+ such as that describing people sitting on a couch or sleeping in a bed. Ultimately, the hierarchical fusion of the various signal combinations allows us to extract from 
+the sensorial
+ information those types which are adequate for 
+monitoring
+ and more importantly for the abnormal activity detection in the ambit of an elder care robot service.
+2.
+4
+ Anomaly Detection for Elderly Behavior Monitoring
+Anomaly detection is an important aspect of elderly monitoring systems due to its significant role in detecting any unusual change in the activities of elderly people that may be abnormal or indicative of declining health due to age related disease or accidents which require immediate medical attention. With the 
+ongoing
+ ageing of the population and an 
+ever increasing
+ number of older people choosing to live independently, automated methods for anomaly detection 
+have to
+ be included in any smart 
+home-based
+ healthcare system. In Gu and Tang (2025), the authors provide a comprehensive survey of indoor abnormal behavior detection technologies for the elderly and, based on an extensive survey of the literature, they classify current approaches into three types: sensor-based, vision-based, and multi-modal fusion methods, and discuss the challenges and constraints of the technology for preserving the privacy of the older people, adapting to changing environments, and achieving real-time performance.
+2.
+4
+.1 Activity-Based Anomaly Detection Approaches
+Activity of Daily Living (ADL) monitoring is typically the core part of an anomaly detection system for elderly care. In their paper titled Graph Based Anomaly Detection for Cognitive Decline of Elderly Patients in Smart Homes, published in 2020, Paudel and Eberle introduced a graph-based anomaly detection method to detect anomalies in elderly patient activities in smart homes using the concept of activity graphs. By applying the concept, the proposed approach could find temporal, spatial and behavioral patterns from the sequence of ADLs of elderly patients. Hence, anomalies in the 
+residents鈥?/w:t></w:r><w:r w:rsidRPr="00C75FC4"><w:t xml:space="preserve"> activities associated with cognitive decline could be successfully identified. They added that the unusual activity patterns are usually exhibited long before the manifestation of any symptoms of cognitive decline and that the monitoring of residents鈥?activities in smart homes 
+daily
+ can aid in the early clinical diagnosis of cognitive decline.
+We propose a novel approach for detecting unusual daily living behaviors of the elderly in their home environments by providing a system for real-time tracking of their daily activities. Our system utilizes Bluetooth beacons and a trilateration-based approach for indoor positioning. We model the normal daily activities of the elderly using a pair of Markov models, which contain transition probabilities between activities, occurrence probabilities and duration 
+distributions. Furthermore, we develop a two-step approach for detecting unusual daily living behaviors, where entropy rate analysis is employed to identify the unusual sequences of activities, and cosine similarity is utilized to detect the unusual durations of the activities.
+2.
+4
+.
+2
+ Multi-Modal Sensor Fusion for Robust Detection
+Multi-modal sensor fusion is considered as one of the effective methods to improve the reliability and accuracy of anomaly detection. Gu and Tang (2025) pointed out that using multi-modal sensor information such as wearable, environmental and vision sensors can provide complementary information to detect anomalies and alleviate the constraints or shortages of a single modality. Generally, early fusion method combines the sensor information at the input level, late fusion method combines the detection results of each sensor after processing them separately. Hybrid fusion method generally aims to achieve a balance between the speed and detection performance.
+In Adibi et al. 
+(2024
+) a detailed study on sensor-enabled digital twins in smart healthcare environment is provided, showcasing the impact of merging IoT sensors, artificial intelligence, and digital twin technologies in smart healthcare systems. The proposed framework for a sensor-enabled digital twin framework provides real-time data monitoring and analysis for carrying out timely interventions in the context of elderly care. Digital twins can help in creating virtual copies of the physical environment and inhabitants which 
+using
+ simulation-based analysis can aid in predicting any abnormal behavior in the elderly and hence enables a proactive approach towards healthcare. Therefore, sensor-enabled digital twins represent a considerable leap in the field of elderly monitoring systems by moving from reactive to proactive approaches.
+2.
+4
+.
+3
+ Digital Twin Technology for Anomaly Detection
+Digital twin has recently attracted huge attention in literature as an enabling technology for sophisticated anomaly detection in elderly care scenario. This technology is based on creating the digital twin or dynamic virtual replica of a physical system such as an elderly person or its surrounding environment. The digital twin can be updated in real time using the sensory data gathered from the system. Adibi et al. 
+(2024
+) showed that sensor based digital twins in smart environment can be exploited for predictive maintenance, individualized healthcare and resource planning by continuously synchronizing the physical and virtual states of the system.
+Digital twins with anomaly detection contribute to 
+several
+ advantages in elderly monitoring. First, the digital twin can virtually simulate different situations 
+to
+ predict potential health threats before they occur in the physical world. Second, the historical data that is stored in the digital twin can be used for longitudinal analysis of an individual鈥檚 behavior and the analysis of their gradual changes which could indicate a health decline. Third, the architecture of the digital twin 
+provides multi-scale modeling at various physiological levels from individual parameters to environmental and social aspects.
+3. Methodology
+3.1 
+System Overview
+3.2 
+Hardware and Development Environment
+3.2.1 
+Sensing Device
+In this study, Samsung Galaxy Watch 8 is selected as the physiological data acquisition platform, a consumer-grade smartwatch 
+running
+ Wear OS 6. The device is e
+quipped
+ with the Samsung 
+BioActive 
+Sensor, a 
+multi-modal optical and electrical sens
+ors 
+that supports 
+continuous
+ acquisition of electrodermal activity, 
+PPG
+ signals, heart rate, and skin surface temperature
+ (see 
+Table 3. 1
+)
+.
+ 
+The watch communicates with the local network via
+ local network
+, enabling real-time data transmission without reliance on a paired smartphone.
+Table 3. 
+1
+S
+amsung Galaxy Watch 8 Onboard Sensors
+Sensor
+Measurement Type
+Physical Principle
+Optical Heart Rate Sensor
+Heart rate, PPG waveform (Green / Red / IR)
+Reflectance photoplethysmography (PPG)
+Bioelectrical Impedance Analysis (BIA) Sensor
+Electrodermal activity (skin conductance)
+Skin surface electrical impedance via wrist electrodes
+Infrared Temperature Sensor
+Wrist skin temperature, ambient temperature
+Infrared thermometry
+Electrical Heart Sensor
+Single-lead ECG
+Electrical potential across cardiac cycle
+Accelerometer
+Linear acceleration, wear-state detection
+Micro-electromechanical inertial sensing
+Gyro Sensor
+Angular velocity
+MEMS gyroscope
+Geomagnetic Sensor
+Magnetic field / orientation
+Hall-effect magnetometry
+Barometer
+Atmospheric pressure / altitude
+Piezoresistive pressure sensing
+Light Sensor
+Ambient illuminance
+Photodiode
+Note.
+ 
+Sensor specifications are from聽Galaxy Watch8
+,
+ by Samsung Electronics, 202
+6
+ (https://www.samsung.com/hk_en/watches/galaxy-watch/galaxy-watch8-40mm-silver-lte-sm-l325fzsatgy/).
+3.2.2 
+Watch Application
+The wearable device application was developed in Kotlin, 
+running
+ on Wear OS
+.
+ 
+The architecture 
+of the application 
+follows the MVVM (Model-View-ViewModel) pattern
+. 
+Figure 3. 1
+ 
+shows the architecture of the 
+application
+. 
+Sensor access is mediated by the Samsung Health Sensor SDK
+ 
+which exposes a聽HealthTrackingService聽interface
+ 
+through聽HealthTracker聽instances for each modality are obtained at runtime.
+ 
+A SharedHealthTrackingServiceManager component manages the lifecycle of the HealthTrackingService connection
+ to ensure the service is connected when at least on consumer is active and cleanly disconnected when all consumers have released their leases. 
+A TrackerSessionCoordinator enforces mutual exclusion across acquisition contexts, preventing concurrent ownership conflicts over the same tracker resource.
+Figure 3. 
+1
+Watch Application Architecture 
+A. 
+Background Continuous Operation
+To sustain physiological data acquisition 
+regardless
+ of user interaction or display state, the application uses a persistent Android Foreground Service. 
+Figure 3. 2
+ shows the execution flow and states of the 
+application
+. After initiation of the application, the service 
+acquires 
+a 
+PARTIAL_WAKE_LOCK
+ via the Android PowerManager. It keeps CPU from entering a suspended state when the watch screen is turned off. Such design ensures that the scheduled 
+acquisition coroutines continue to execute at their intervals without being 
+terminated
+ by the Wear OS power management system.
+The foreground service maintains a persistent system notification throughout the monitoring session in order to satisfy requirements of Android foreground service and provide a indicator for background acquisition. The content of notification is updated in real-time to reflect the current connection state, tracking progress, and latest result. 
+The service is declared with the START_STICKY restart flag
+, 
+instructing the Wear OS process manager to automatically restart the service in the event of system-initiated termination.
+ Additionally, a recovery loop is designed to execute at 5 seconds intervals, which can automatically reconnect to the sensor service or restart data acquisition if is found in an inactive state.
+B. 
+Background Continuous Operation
+Figure 3. 
+2
+A
+pplication execution flow from service startup to data transmission.
+3.3 Software System Architecture Design
+This modular software architecture is designed specifically for the set of services provided in elderly housing environments, supporting health data analysis, visual dashboards, and clear functional separations among the modules to permit real-time processing of data, accurate health care analysis, and user-friendly visualization of data. The software architecture will have four fundamental functional modules, creating a closed-loop (physiological data acquisition 
+鈫?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> transmission 
+鈫?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> multi-dimensional health data analysis 
+鈫?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> anomaly detection and grading 
+鈫?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> visual display and management on dashboard) of the elderly's health condition by combining the modules into one digital twin.
+3.3.1 Multi-Source Data Ingestion and Transmission Module
+The Samsung Galaxy Watch 8 is the main sensing device in this module and is used to continuously collect multi-modal physiological data (i.e., heart rate, EDA, skin temperature, PPG, 
+ECG, etc.) and motion state data regarding the elderly population. All data will be transmitted from the watch to a common data repository in real time and with a high level of stability through the HTTP protocol. Additionally, the module will be able to interface with the Samsung Health Sensor SDK, which provides stable access to the underlying sensor data generated by the wearable device, performs basic data formatting, and filters out corrupted measurements before transmitting them, thus eliminating potential measurement errors caused by sensor interference. The transmitted data will be submitted to the server, which is built on the Flask framework, in a defined payload format and contains device identifiers for the elderly, timestamps for when the sensor data was collected, and the multiple dimensions of physiological measures collected; this will create a strong data foundation for all subsequent health-related data analytics and data processing.
+3.3.2 Personalized Health Data Analysis Module
+This Module Provides 
+a
+ Set 
+Of
+ Multi-dimensional Health Data Analysis Algorithms 
+For
+ Original Sensor Data Collected 
+At
+ 
+the
+ Backend 
+and
+ Develops Personalized Health Baselines 
+For
+ Each Elderly Resident Based Upon Their Longitudinally Collected Data. For EDA Data (Skin Conductance; Baseline and Fluctuations of Signals), The Module Fuses Skin Conductance 
+And
+ Stability 
+to
+ Produce 
+A
+ Comprehensive Stress Score 
+with
+ Which 
+To
+ Classify Stress 
+from
+ Relaxed 
+To
+ Very Stressed. For Temperature Data, It Calculates 
+the
+ Core Body Temperature 
+By
+ Correcting 
+The
+ Wrist Temperature Using Ambient Temperature 
+to
+ Classify Temperature Level (Hypothermia Risk; Low; Normal; Fever; Highest Fever). For Heart Rate Data, An Age-Adjusted Classification Method Is Used 
+To
+ Calculate Each 
+Senior鈥檚 Individual鈥檚
+ Individual Maximum Heart Rates Based 
+on
+ Their Age 
+and
+ Classify Heart Rates 
+Into
+ Separated Grades 
+With
+ Corresponding Health Alerts (i.e., What Is Good 
+for
+ You). All Analyses Are Optimized 
+For
+ 
+The
+ Elderly Population, Eliminating 
+the
+ Inaccuracies Associated 
+with
+ Applying Generalized Population Standards 
+To
+ 
+the
+ Elderly, And Thereby Creating Accurate 
+And
+ Relevant Health Data Analyses.
+3.3.3 Rule-Based Anomaly Detection and Severity Grading Module
+In this module, an anomaly detection engine is created to automatically identify abnormal health conditions and to classify alerts hierarchically, based on outcomes from analysis of health data. This engine establishes age-adjusted criteria for determining whether an abnormal physiological measurement has occurred based on four key indicators (i.e., heart rate, oxygen in the bloodstream, blood pressure, and body temperature) and uses motion/physical activity data to perform inclusive anomaly detection (e.g., a sharp increase in heart rate with no activity for some indicated period of time would qualify as high risk). Additionally, warning and critical severity levels will be assigned to detected anomalies based on how much individual measurements differ from established personal (baseline) and/or clinical risk criteria, with alert message generated containing structured information for each case (i.e., subject_id, anomaly_type, time of anomaly event, and severity of anomaly) that is sent to a subsequent dashboard module used to provide real-time display and stored in a database for long-term viewability.
+3.3.4 Integrated Health Data Visual Dashboard Module
+Derived from Streamlit, this module is the human-computer interaction core of the Overall System, which provides easy to view visualizations of all health data, any analysis results and any alerts related to anomalies, along with creating a visual display of the elderly
+鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">s health as a digital twin. The design for the dashboard is a multi-page interactive format that allows for integrating 
+multiple types of information in one place. This includes real-time observation and monitoring of physiological indicators such as heart rate, EDA (Electrodermal Activity), Body Temp, etc., analyzing historical health trends through both line & long-term bar charts, alerting for anomalies (real-time push) and managing the residents
+鈥?/w:t></w:r><w:r><w:rPr><w:rFonts w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve"> basic information. Within this dashboard, users can filter the data by time period, resident id and indicator type. Additionally, physiological indicators and anomalies within the dashboard can be visually correlated, which helps to lessen the cognitive burden of the caregivers. The caregivers can efficiently view all of the elderly's health status in one place, respond quickly to anomaly alerts and conduct in-depth analysis on historical health data. This can help improve overall elderly care management through efficiency and use of data.
+3.
+4
+ Indoor Positioning System
+This paper proposes an indoor positioning subsystem composed of BLE beacon anchors, motion 
+sensors
+ and pressure 
+sensors
+ based on four-layer architecture namely sensing layer, communication layer, processing layer and output layer. In the sensing layer, the BLE beacon anchors are built on the ESP32-WROOM-32E chip, PIR motion sensor is arranged in each room and Force Sensitive Resistor (FSR) pressure sensor is arranged under the main furniture. The communication layer uses MQTT protocol and an Eclipse 
+Mosquitto
+ broker is deployed on the central server to connect with all sensor nodes. In the processing layer, the indoor positioning algorithm adopts RSSI smoothing based on Kalman filtering, distance calculation based on the log-distance path loss model, trilateration and multi-sensor fusion logic. In the output layer, the processed indoor positioning data is transmitted to the Digital Twin and the anomaly detection module.
+3.
+4
+.
+1 
+Hardware Configuration
+Table 3.2
+Hardware Components of the Indoor Positioning System
+Component
+Model
+Role
+Specification
+BLE Anchor (脳3)
+ESP32-WROOM-32E
+Scan BLE RSSI, publish via MQTT
+BLE 4.2, Wi-Fi 802.11 b/g/n, 2.4 GHz
+BLE Tag (脳1)
+RFstar
+ iBeacon (CC2640R2F)
+Worn by elderly, broadcasts BLE
+BLE 5.0, 300 
+ms
+ adv. interval, 0 dBm TX
+PIR Sensor
+AM312
+(planned)
+Room-level presence detection
+Detection range 3鈥?/w:t></w:r><w:r w:rsidR="00C41459"><w:rPr><w:rFonts w:hint="eastAsia"/><w:sz w:val="22"/></w:rPr><w:t>5
+ m, 120掳 cone
+Pressure Sensor
+Furniture interaction detection
+MQTT Broker
+Eclipse 
+Mosquitto
+ 2.1
+Message routing
+Runs on Windows PC, port 1883
+3.
+4
+.
+2
+ BLE RSSI Acquisition and Kalman Filtering
+Every anchor ESP32 acts as BLE scanner and is always scanning for the iBeacon tag (TX ID 
+20:A7:16:60:F9:B9
+) which is attached to the elderly鈥檚 body. When it discovers the target device, it records the RSSI (raw) and then smoothens the RSSI output by applying a 1D Kalman Filter. The Q = 0.5 and R = 8.0 are chosen based on a 
+trial-and-error
+ basis. Low values of Q 
+produce
+ smoother trace, which is suitable for the scenario as we are dealing with the slow-moving behavior of the elderly inside the home. A low value of Q suggests that the state of the system is not expected to change drastically.
+The filtered RSSI value along with the unfiltered RSSI and the timestamp in milliseconds is published in a JSON message to the MQTT broker at the topic indoor/
+ble
+/{
+anchor_
+id
+}/
+rssi
+. The MQTT QoS is set to level 0 to reduce latency for the RSSI readings. The anchor status is published with QoS level 1 and with the retained flag set. This ensures that the server is always aware of the online/offline status of the anchor nodes. This is achieved via the MQTT Last Will and Testament (LWT) feature.
+3.
+4
+.
+3
+ Multi-Sensor Fusion Strategy
+Furniture Level Positioning: This system fuses sensor data using a hierarchical fusion algorithm that chooses the most probable and accurate position and orientation at any given time. This is achieved in 3 levels of fusion:
+ 
+Pressure Sensors (level 1):
+ 
+The pressure sensors on the objects (e.g. a bed) are definitive of the position of an object
+: 
+The system identifies the known position of an object when pressure 
+sensors
+ 
+in the matrix are activated. - Once activated, the system assumes that it has the position of the bed and tries to determine the state of people on top of it (lying or seated) based on duration of pressure sensor activation. PIR (level 2):
+ 
+The location obtained by BLE trilateration is constrained to the room obtained from PIRs. If the PIR for a room is activated, the BLE trilateration position is cross checked against the periphery of the room. If the estimated position from trilateration is outside of the estimated 
+room,
+ it is assumed to be within that room. BLE (level 3):
+ 
+In the absence of pressure sensor activation or PIR activation the system solely uses BLE trilateration for determining its position.
+Table 3.3
+MQTT Topic Structure for the Indoor Positioning System
+MQTT Topic
+Publisher
+Payload Example
+indoor/
+ble
+/{id}/
+rssi
+ESP32 anchor node
+{"raw
+":-
+65,"filtered
+":-
+62.3,"ts":1710000000}
+indoor/
+ble
+/{id}/
+status
+ESP32 anchor node
+{"online
+":true
+,"uptime":3600,"battery":87}
+indoor/
+pir/{
+room}
+PIR sensor gateway
+{"motion
+":true
+,"room":"bedroom","ts":1710000001}
+indoor/
+pressure/{
+id}
+Pressure 
+mat
+ controller
+{"occupied
+":true
+,"weight_kg":62.4}
+indoor/position/current
+Fusion processor
+{"room":"living_room","confidence":0.92,"x":3.2,"y":1.8}
+4. Evaluation
+4.2 Indoor Positioning System Evaluation
+4.2.1 Current Implementation Status
+As of today, BLE RSSI acquisition and MQTT communication part is implemented and tested. It is confirmed that a single anchor (custom Arduino firmware running on an ESP32-WROOM-32E) is fully functional for the following items: - Connect to Wi-Fi and maintain a connection with 
+Mosquitto
+ MQTT broker; - Continuously scan and detect 
+RFstar
+ iBeacon in the tag through BLE; - Process the RSSI data through Kalman filter in real time; - Publish filtered data to MQTT broker at an interval of about one second. The end-to-end functionality of the whole data path from ESP32 hardware to MQTT broker and then to the client application has been validated.
+The Kalman filter is parameterized with process noise covariance Q=0.5 and measurement noise covariance R=8.0, based on the few iterations of manual adjustments that were needed to achieve the desired tradeoff between tracking the small position changes as well as promptly dealing with multipath phenomena. The performance of the implemented filter is correct, in the sense that, over the considered number of iterations, the signal variance is reduced by about 22.5% at the output of the filter, while the mean RSSI is kept within 0.1 dBm from the original value, with no bias introduced. Additionally, the anchor node firmware features a reconnection routine for both Wi-Fi and MQTT links, to automatically recover from occasional loss of connection.
+Our MQTT topic structure is designed with scalability and modularity in mind. Specifically, each anchor node publishes the RSSI readings to a distinct topic that includes the node ID, 
+in order to
+ leverage the broker鈥檚 capability for handling large number of anchor nodes in multi-anchor positioning scenarios. In addition, a status topic that periodically publishes heartbeats with a 1-minute frequency is published 
+in order to
+ enable the monitoring server to detect anchor node disconnection based on more than just absence of RSSI readings. The MQTT topics utilized in the positioning sub-system are summarized in Table 3.3.
+Table 4.1
+Preliminary RSSI Measurement Results (Single Anchor, Short Range)
+Metric
+Raw RSSI
+Kalman Filtered
+Mean (dBm)
+-20.5
+-20.4
+Range (dBm)
+-24 to -20
+-23.3 to -20.2
+Variability (dBm)
+卤4
+卤3.1
+Update rate
+~1.2 s/reading
+~1.2 s/reading
+MQTT delivery
+N/A
+100% (no loss)
+Note. 
+Data collected from a single anchor node at short range (< 0.5 m). Kalman filter parameters: Q = 0.5, R = 8.0.
+4.2.2 Planned Evaluation
+The full Positioning system evaluation will be done in MVP phase with the following tests. Multi-anchor trilateration accuracy test with 3 ESP32 anchor nodes in a test room. The coordinates of the calculated positions will be verified against the exact ground truth coordinates at the test points on the grid. Multi-sensor fusion accuracy evaluation by comparing the positions calculated before and after including PIR and pressure sensor data with metrics of Mean Absolute Error (MAE), Root Mean Square Error (RMSE) and room detection accuracy. System Reliability Test A 
+24-hour
+ long test will be done to check the reliability of the system. Key performance indicators are: - Average MQTT message sending rate of the anchor nodes - Uptime of the anchor nodes - Frequency of false alarms in the anomaly detection module.
+5. Conclusion and Future Work
+Content.
+7. Reference
+Allen, J. (2007). Photoplethysmography and its application in clinical physiological measurement.聽
+Physiological Measurement
+,聽
+28
+(3), R1鈥揜39.聽
+https://doi.org/10.1088/0967-3334/28/3/R01
+Bayoumy, K., Gaber, M., Elshafeey, A., Mhaimeed, O., Dineen, E. H., Marvel, F. A., Martin, S. S., Muse, E. D., Turakhia, M. P., Tarakji, K. G., & Elshazly, M. B. (2021). Smart wearable devices in cardiovascular care: Where we are and how to move forward.聽
+Nature Reviews Cardiology
+,聽
+18
+(8), 581鈥?99.聽
+https://doi.org/10.1038/s41569-021-00522-7
+Boucsein, W. (2012).聽
+Electrodermal activity
+聽(2nd ed.). Springer.聽
+https://doi.org/10.1007/978-1-4614-1126-0
+Charkoudian, N. (2003). Skin blood flow in adult human thermoregulation: How it works, when it does not, and why.聽
+Mayo Clinic Proceedings
+,聽
+78
+(5), 603鈥?12.聽
+https://doi.org/10.4065/78.5.603
+Critchley, H. D. (2002). Electrodermal responses: What happens in the brain.聽
+The Neuroscientist
+,聽
+8
+(2), 132鈥?42.聽
+https://doi.org/10.1177/107385840200800209
+Dawson, M. E., Schell, A. M., & Courtney, C. G. (2017). The skin conductance response, anticipation, and decision-making. In J. T. Cacioppo, L. G. Tassinary, & G. G. Berntson (Eds.),聽
+Handbook of psychophysiology
+聽(4th ed., pp. 217鈥?43). Cambridge University Press.
+ 
+Dias, D., & Paulo Silva Cunha, J. (2018). Wearable health devices鈥擵ital sign monitoring, systems and technologies.聽
+Sensors
+,聽
+18
+(8), 2414.聽
+https://doi.org/10.3390/s18082414
+Georgiou, K., Larentzakis, A. V., Khamis, N. N., Alsulaiman, G. I., Roma, E. S., & Alexiou, E. A. (2018). Can wearable devices accurately measure heart rate variability? A systematic review.聽
+Folia Medica
+,聽
+60
+(1), 7鈥?0.聽
+https://doi.org/10.2478/folmed-2018-0012
+Kligfield, P., Gettes, L. S., Bailey, J. J., Childers, R., Deal, B. J., Hancock, E. W., van Herpen, G., Kors, J. A., Macfarlane, P., Mirvis, D. M., Pahlm, O., Rautaharju, P., & Wagner, G. S. (2007). Recommendations for the standardization and interpretation of the electrocardiogram: Part I.聽
+Circulation
+,聽
+115
+(10), 1306鈥?324.聽
+https://doi.org/10.1161/CIRCULATIONAHA.106.180200
+Majumder, S., Mondal, T., & Deen, M. J. (2017). Wearable sensors for remote health monitoring.聽
+Sensors
+,聽
+17
+(1), 130.聽
+https://doi.org/10.3390/s17010130
+Mohr, D. C., Zhang, M., & Schueller, S. M. (2017). Personal sensing: Understanding mental health using ubiquitous sensors and machine learning.聽
+Annual Review of Clinical Psychology
+,聽
+13
+, 23鈥?7.聽
+https://doi.org/10.1146/annurev-clinpsy-032816-044949
+Piwek, L., Ellis, D. A., Andrews, S., & Joinson, A. (2016). The rise of consumer health wearables: Promises and barriers.聽
+PLOS Medicine
+,聽
+13
+(2), e1001953.聽
+https://doi.org/10.1371/journal.pmed.1001953
+Vinkers, C. H., Penning, R., Hellhammer, J., Verster, J. C., Kahn, R. S., Riedel, W. J., & Olivier, B. (2013). The effect of stress on core and peripheral body temperature in humans.聽
+Stress
+,聽
+16
+(5), 520鈥?30.聽
+https://doi.org/10.3109/10253890.2013.807243
+Wijsman, J., Grundlehner, B., Liu, H., Hermens, H., & Penders, J. (2011). Towards mental stress detection using wearable physiological sensors.聽
+Proceedings of the 33rd Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC)
+, 1798鈥?801.聽
+https://doi.org/10.1109/IEMBS.2011.6090512
+Alarifi
+, A., Al-Salman, A., Alsaleh, M., 
+Alnafessah
+, A., Al-Hadhrami, S., Al-Ammar, M. A., & Al-Khalifa, H. S. (2016). 
+Ultra wideband
+ indoor positioning technologies: Analysis and recent advances. 
+Sensors, 16
+(5), 707. 
+http
+s
+://doi.org/10.3390/s16050707
+Dwiputranto
+, M. H., Suroso, D. J., & Siddiq, N. A. (2023). Kalman filter for RSSI-based indoor positioning system with min-max technique. 
+AIP Conference Proceedings, 2968
+(1), 040001. 
+https://doi.org/10.1063/5
+.
+0180045
+Faragher, R., & Harle, R. (2015). Location fingerprinting with Bluetooth Low Energy beacons. 
+IEEE Journal on Selected Areas in Communications, 33
+(11), 2418鈥?428. 
+https://doi.org/10.1109/JSAC.2015.2430281
+Gomez-de-Gabriel, J. M., Fern谩ndez-Madrigal, J. A., L贸pez-Arquillos, A., & Rubio-Romero, J. C. (2018). A Bluetooth Low Energy indoor positioning system with channel diversity, weighted trilateration and Kalman filtering. 
+Sensors, 18
+(1), 12. 
+https://doi.org/10.3390/s18010012
+Lou, P., Zhao, Q., 
+Zhang,
+ X., Li, D., & Hu, J. (2022). Indoor positioning system with UWB based on a digital twin. 
+Sensors, 22
+(16), 5936. 
+https://doi.org/10.3390/s22165936
+Perez-Navarro, A., Torres-
+Sospedra
+, J., Montoliu, R., Conesa, J., 
+Berkvens
+, R., Caso, G., ... Wilk, P. (2020). Indoor positioning for monitoring older adults at home: Wi-Fi and BLE technologies in real scenarios. 
+Electronics, 9
+(5), 728. 
+https://doi.org/10.3390/electron
+i
+cs905072
+8
+Zhuang, Y., Yang, J., Li, Y., Qi, L., & El-
+Sheimy
+, N. (2016). Smartphone-based indoor localization with Bluetooth Low Energy beacons. 
+Sensors, 16
+(5), 596. 
+https://doi.org/10.3390/s16050596
+Adibi, S., 
+Rajabifard
+, A., Shojaei, D., & Wickramasinghe, N. (2024). Enhancing healthcare through sensor-enabled digital twins in smart environments: A comprehensive analysis. Sensors, 24(9), 2793. 
+https://doi.org/10.3390/s24092793
+Chifu
+, V. R., Pop, C. B., 
+Demjen
+, D., 
+Socaci
+, R., Todea, D., Antal, M., Cioara, T., Anghel, I., & Antal, C. (2022). Identifying and monitoring the daily routine of seniors living at home. Sensors, 22(3), 992. 
+https://doi.or
+g
+/10.3390/s22030992
+Gu, T., & Tang, M. (2025). Indoor abnormal behavior detection for the elderly: A review. Sensors, 25(11), 3313. 
+https://doi.org/10.3390/s25113313
+Paudel, R., & Eberle, W. (2020). Anomaly detection of elderly patient activities in smart homes using graph-based approach. In Proceedings of the 2020 IEEE International Conference on Big Data (pp. 3434鈥?443). IEEE. 
+https://doi.org/10.1109/BigData50022.2020.9378254
+[1] Liu Y, Zhang L, Yang Y, et al. A novel cloud-based framework for the elderly healthcare services using digital twin[J]. IEEE access, 2019, 7: 49088-49101.
+[2] Luzzani G, Buraioli I, Guglieri G, et al. EDA, PPG and skin temperature as predictive signals for mental failure by a statistical analysis on stress and mental workload[J]. IEEE Open Journal of Engineering in Medicine and Biology, 2024, 6: 248-255.
+[3] Ahmadi-Assalemi G, Al-Khateeb H, Maple C, et al. Digital twins for precision healthcare[M]//Cyber defence in the age of AI, Smart societies and augmented humanity. Cham: Springer International Publishing, 2020: 133-158.

@@ -1,0 +1,68 @@
+server:
+  port: ${PORT:3100}
+
+spring:
+  application:
+    name: elderlycare-backend
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:elderly}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Hong_Kong
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        boot:
+          allow_jdbc_metadata_access: false
+        format_sql: true
+  sql:
+    init:
+      mode: never
+
+app:
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:8080
+  http-logging:
+    enabled: true
+    max-body-length: 4000
+  positioning:
+    enabled: true
+    mqtt-host: ${POSITIONING_MQTT_HOST:localhost}
+    mqtt-port: ${POSITIONING_MQTT_PORT:1883}
+    mqtt-topic: ${POSITIONING_MQTT_TOPIC:indoor/location/target_01}
+    mqtt-client-id: ${POSITIONING_MQTT_CLIENT_ID:elderlycare-position-bridge}
+    mqtt-username: ${POSITIONING_MQTT_USERNAME:}
+    mqtt-password: ${POSITIONING_MQTT_PASSWORD:}
+  auth:
+    token-ttl: 12h
+    accounts:
+      - username: admin
+        password: admin123
+        display-name: System Administrator
+        role: ADMIN
+      - username: john
+        password: john123
+        display-name: John Doe
+        role: RESIDENT_VIEWER
+        resident-id: 1
+        resident-name: John Doe
+        watch-id: real-watch-001
+      - username: jane
+        password: jane123
+        display-name: Jane Smith
+        role: RESIDENT_VIEWER
+        resident-id: 2
+        resident-name: Jane Smith
+        watch-id: real-watch-002
+      - username: demo
+        password: demo123
+        display-name: Demo Patient
+        role: RESIDENT_VIEWER
+        resident-id: 5
+        resident-name: Demo Patient
+        watch-id: demo-watch-001
