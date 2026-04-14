@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "generate:elder-model": "node ./scripts/generate-elder-model.mjs",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
@@ -39,6 +40,8 @@
     "@radix-ui/react-toggle": "^1.1.0",
     "@radix-ui/react-toggle-group": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.1.0",
+    "@react-three/drei": "^9.121.2",
+    "@react-three/fiber": "^8.17.10",
     "@supabase/supabase-js": "^2.49.8",
     "@tanstack/react-query": "^5.48.0",
     "axios": "^1.6.8",
@@ -62,6 +65,7 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
+    "three": "^0.160.0",
     "vaul": "^0.9.1",
     "zod": "^3.23.8"
   },

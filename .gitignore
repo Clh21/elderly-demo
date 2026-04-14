@@ -36,6 +36,10 @@ env/
 # Java / Maven build output
 backend-springboot/target/
 backend-springboot/out/
+backend-springboot/elderlycare-position-bridge-*/
+
+# Indoor-positioning temporary extracted docs
+indoor-positioning/docs/_docx_extract_tmp/
 
 # ECG analysis generated artifacts
 ecg_analysis/analysis_results.json

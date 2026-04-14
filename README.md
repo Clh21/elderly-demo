@@ -95,6 +95,19 @@ python simulator.py
 
 Press `Ctrl+C` to stop. On exit, it automatically sends an UNWORN wear state.
 
+### Terminal 4 — Indoor positioning bridge source (optional but required for indoor map)
+
+The Spring Boot backend now subscribes to MQTT indoor location topic `indoor/location/target_01` and exposes it to the frontend.
+
+To feed that topic, start your BLE positioning stack from `indoor-positioning/`:
+
+```bash
+cd indoor-positioning
+python indoor_positioning_server.py
+```
+
+If Mosquitto is not running yet, start it first.
+
 ---
 
 ## Features
@@ -106,6 +119,12 @@ Press `Ctrl+C` to stop. On exit, it automatically sends an UNWORN wear state.
 - Data auto-refreshes every 10 seconds
 - **Alert popup**: when a new alert is detected, a modal appears automatically matching the app style. Close it with the X button in the top-right corner.
 - Overview stats bar: total residents, active alerts, connected devices, data points today
+
+### Indoor Position (new)
+- New navigation entry: **Indoor Position**
+- Shows room map with anchors and resident point
+- Status card and timestamp update in real time through SSE (`/api/stream/position-updates`)
+- Data source: MQTT topic `indoor/location/target_01` bridged by Spring Boot backend
 
 ### Residents
 - View all registered residents with room numbers and watch IDs
@@ -180,11 +199,13 @@ To change the target watch, edit `WATCH_ID` at the top of `simulator.py`.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/watch/:watchId` | Latest reading + 10-point minute history |
+| GET | `/api/position/latest` | Latest indoor position payload |
 | GET | `/api/stats` | Overview statistics |
 | GET | `/api/residents` | All residents |
 | GET | `/api/health/:residentId?days=7` | Daily health summary history |
 | GET | `/api/alerts` | All alerts (latest 100) |
 | GET | `/api/alerts/latest?after=<id>` | New active alerts since given ID (used for popup polling) |
+| GET | `/api/stream/position-updates` | SSE stream for indoor position updates |
 | POST | `/api/alerts/:id/resolve` | Resolve an alert |
 | POST | `/api/samsung-watch?watchId=<id>` | Ingest Samsung Watch 8 sensor payload |
 | POST | `/api/watch-reading` | Generic sensor reading ingestion |

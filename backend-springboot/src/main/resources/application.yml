@@ -30,6 +30,14 @@ app:
   http-logging:
     enabled: true
     max-body-length: 4000
+  positioning:
+    enabled: true
+    mqtt-host: ${POSITIONING_MQTT_HOST:localhost}
+    mqtt-port: ${POSITIONING_MQTT_PORT:1883}
+    mqtt-topic: ${POSITIONING_MQTT_TOPIC:indoor/location/target_01}
+    mqtt-client-id: ${POSITIONING_MQTT_CLIENT_ID:elderlycare-position-bridge}
+    mqtt-username: ${POSITIONING_MQTT_USERNAME:}
+    mqtt-password: ${POSITIONING_MQTT_PASSWORD:}
   auth:
     token-ttl: 12h
     accounts:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, Activity, Thermometer, Watch } from 'lucide-react';
 import WatchDataCard from '../components/WatchDataCard';
@@ -7,10 +7,15 @@ import ECGHistoryModal from '../components/ECGHistoryModal';
 import MetricDetailModal from '../components/MetricDetailModal';
 import EdaBaselineResultModal from '../components/EdaBaselineResultModal';
 import DigitalTwin from '../components/DigitalTwin';
+import RoomLocationCard from '../components/RoomLocationCard';
+import RoomLocationModal from '../components/RoomLocationModal';
+import ElderModelDashboardCard from '../components/ElderModelDashboardCard';
 import OverviewStats from '../components/OverviewStats';
 import AlertPopup from '../components/AlertPopup';
 import { useAuth } from '../context/AuthContext';
 import { buildEdaBaseline, fetchAlerts, fetchElderlyResidents, fetchLatestAlerts, fetchOverviewStats, fetchWatchData } from '../services/api';
+import { fetchIndoorPositioningStatus, fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
+import { normalizeIndoorPositionPayload } from '../lib/indoorRooms';
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -31,20 +36,69 @@ const formatDateTime = (value) => {
 };
 
 const Index = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [selectedWatch, setSelectedWatch] = useState(null);
   const [pendingAlerts, setPendingAlerts] = useState([]);
   const [showPopup, setShowPopup] = useState(false);
   const [showEcgHistory, setShowEcgHistory] = useState(false);
   const [activeMetricModal, setActiveMetricModal] = useState(null);
   const [edaBaselineFeedback, setEdaBaselineFeedback] = useState(null);
+  const [showRoomModal, setShowRoomModal] = useState(false);
+  const [indoorPosition, setIndoorPosition] = useState(null);
+  const [roomHistory, setRoomHistory] = useState([]);
+  const [positioningStatus, setPositioningStatus] = useState(null);
   const lastSeenAlertId = useRef(0);
   const queryClient = useQueryClient();
+
+  const handleIndoorUpdate = useCallback((payload) => {
+    const normalized = normalizeIndoorPositionPayload(payload);
+    if (!normalized) {
+      return;
+    }
+
+    const entryKey = [
+      normalized.ts,
+      normalized.roomId,
+      normalized.x.toFixed(2),
+      normalized.y.toFixed(2),
+    ].join('|');
+
+    setIndoorPosition(normalized);
+    setRoomHistory((prev) => {
+      if (prev.some((entry) => entry.entryKey === entryKey)) {
+        return prev;
+      }
+
+      return [
+        {
+          ...normalized,
+          entryKey,
+        },
+        ...prev,
+      ].slice(0, 32);
+    });
+  }, []);
 
   const { data: residents = [] } = useQuery({
     queryKey: ['residents'],
     queryFn: fetchElderlyResidents,
   });
+
+  const positioningStatusQuery = useQuery({
+    queryKey: ['indoorPositioningStatus', 'dashboard'],
+    queryFn: fetchIndoorPositioningStatus,
+    enabled: !!token,
+    refetchInterval: 30_000,
+    retry: 1,
+  });
+
+  useEffect(() => {
+    if (positioningStatusQuery.data) {
+      setPositioningStatus(positioningStatusQuery.data);
+    }
+  }, [positioningStatusQuery.data]);
+
+  const positioningUnavailable = positioningStatus?.available === false;
 
   useEffect(() => {
     if (!residents.length) {
@@ -71,6 +125,44 @@ const Index = () => {
     refetchInterval: 10000,
     enabled: !!selectedWatch,
   });
+
+  const { data: latestIndoorPositionPayload } = useQuery({
+    queryKey: ['latestIndoorPosition', 'dashboard'],
+    queryFn: fetchLatestIndoorPosition,
+    enabled: !!token,
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  useEffect(() => {
+    if (!latestIndoorPositionPayload) {
+      return;
+    }
+    handleIndoorUpdate(latestIndoorPositionPayload);
+  }, [latestIndoorPositionPayload, handleIndoorUpdate]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    if (positioningUnavailable) {
+      return undefined;
+    }
+
+    const closeStream = openIndoorPositionStream(token, {
+      onUpdate: (payload) => {
+        handleIndoorUpdate(payload);
+      },
+      onStatus: (payload) => {
+        setPositioningStatus(payload);
+      },
+    });
+
+    return () => {
+      closeStream();
+    };
+  }, [token, handleIndoorUpdate, positioningUnavailable]);
 
   const edaBaselineMutation = useMutation({
     mutationFn: (watchId) => buildEdaBaseline(watchId),
@@ -228,6 +320,13 @@ const Index = () => {
         watchId={selectedWatch}
         metric={activeMetricModal}
       />
+      <RoomLocationModal
+        isOpen={showRoomModal}
+        onClose={() => setShowRoomModal(false)}
+        currentPosition={indoorPosition}
+        history={roomHistory}
+        positioningStatus={positioningStatus}
+      />
 
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -360,8 +459,15 @@ const Index = () => {
           </div>
 
           {/* Digital Twin Panel */}
-          <div className="lg:col-span-1">
+          <div className="space-y-6 lg:col-span-1">
             <DigitalTwin watchId={selectedWatch} watchData={watchData} resident={selectedResident} />
+            <RoomLocationCard
+              currentPosition={indoorPosition}
+              history={roomHistory}
+              onTitleClick={() => setShowRoomModal(true)}
+              positioningStatus={positioningStatus}
+            />
+            <ElderModelDashboardCard />
           </div>
         </div>
       </div>

@@ -56,6 +56,24 @@ Still worth improving:
 - add Maven Wrapper so the project can build without a machine-wide Maven install
 - add integration tests for `/api/watch/{watchId}` and `/api/samsung-watch`
 
+## Indoor positioning integration
+
+This backend includes an MQTT-to-SSE bridge for BLE indoor positioning.
+
+- MQTT source topic (default): `indoor/location/target_01`
+- REST endpoint: `/api/position/latest`
+- SSE endpoint: `/api/stream/position-updates`
+
+Config keys in `application.yml`:
+
+- `app.positioning.enabled`
+- `app.positioning.mqtt-host`
+- `app.positioning.mqtt-port`
+- `app.positioning.mqtt-topic`
+- `app.positioning.mqtt-client-id`
+- `app.positioning.mqtt-username`
+- `app.positioning.mqtt-password`
+
 ## Run
 
 Set database environment variables if needed:
