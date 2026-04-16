@@ -24,7 +24,7 @@ public class BackendStartupRunner implements ApplicationRunner {
         try {
             watchDataRepository.ensureAlertTypeEnum();
         } catch (Exception ex) {
-            LOGGER.warn("Alert enum migration failed", ex);
+            LOGGER.warn("Alert enum migration failed: {}", ex.getMessage());
         }
 
         try {
@@ -39,7 +39,7 @@ public class BackendStartupRunner implements ApplicationRunner {
                 watchDataRepository.seedDemoMinuteReading(residentId.get(), slot, heartRate, temperature, eda);
             }
         } catch (Exception ex) {
-            LOGGER.warn("Demo seed failed", ex);
+            LOGGER.warn("Demo seed failed: {}", ex.getMessage());
         }
     }
 }

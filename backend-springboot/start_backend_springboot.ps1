@@ -8,8 +8,8 @@ function Ensure-DbEnvironment {
     if (-not $env:DB_HOST) { $env:DB_HOST = "localhost" }
     if (-not $env:DB_PORT) { $env:DB_PORT = "3306" }
     if (-not $env:DB_NAME) { $env:DB_NAME = "elderly" }
-    if (-not $env:DB_USERNAME) { $env:DB_USERNAME = "root" }
-    if (-not $env:DB_PASSWORD) { $env:DB_PASSWORD = "" }
+    if (-not $env:DB_USERNAME) { $env:DB_USERNAME = "elderly_app" }
+    if (-not $env:DB_PASSWORD) { $env:DB_PASSWORD = "Elderly@123456" }
 }
 
 function Ensure-LocalMySql {
@@ -27,19 +27,11 @@ function Ensure-LocalMySql {
         return
     }
 
-    $serviceName = $null
-    foreach ($candidate in @("MySQL80", "MySQL84")) {
-        $service = Get-Service -Name $candidate -ErrorAction SilentlyContinue
-        if ($service) {
-            $serviceName = $candidate
-            break
-        }
-    }
-
-    if ($serviceName) {
+    $service = Get-Service -Name "MySQL84" -ErrorAction SilentlyContinue
+    if ($service) {
         if ($service.Status -ne "Running") {
-            Start-Service -Name $serviceName
-            Write-Output "[DB] Started $serviceName service."
+            Start-Service -Name "MySQL84"
+            Write-Output "[DB] Started MySQL84 service."
         }
     } else {
         $mysqld = "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe"
@@ -128,10 +120,6 @@ Ensure-LocalMySql
 Write-Output "[JAVA] $env:JAVA_HOME"
 Write-Output "[MAVEN] $env:MAVEN_HOME"
 Write-Output "[DB] host=$env:DB_HOST port=$env:DB_PORT db=$env:DB_NAME user=$env:DB_USERNAME"
-
-if (-not $env:DB_PASSWORD) {
-    Write-Output "[WARN] DB_PASSWORD is empty. If MySQL requires a password, set $env:DB_PASSWORD before starting."
-}
 
 if ($CheckOnly) {
     java -version

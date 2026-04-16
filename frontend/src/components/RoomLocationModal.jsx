@@ -21,10 +21,8 @@ const zoneRect = (zone) => ({
 const isBorderTick = (tick, maxValue) => tick === 0 || Math.abs(tick - maxValue) < 0.001;
 const meterToSvgY = (meterValue) => ROOM_HEIGHT_M - meterValue;
 
-const RoomLocationModal = ({ isOpen, onClose, currentPosition, history, positioningStatus }) => {
+const RoomLocationModal = ({ isOpen, onClose, currentPosition, history }) => {
   const records = history || [];
-  const positioningUnavailable = positioningStatus?.available === false;
-  const positioningUnavailableMessage = positioningStatus?.message;
 
   const roomStats = useMemo(() => {
     const base = ROOM_ZONES.reduce((acc, zone) => ({ ...acc, [zone.id]: 0 }), {});
@@ -248,9 +246,7 @@ const RoomLocationModal = ({ isOpen, onClose, currentPosition, history, position
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-                {positioningUnavailable
-                  ? (positioningUnavailableMessage || 'Indoor positioning unavailable. MQTT bridge is not connected.')
-                  : 'No room records yet. Keep the positioning server running and wait for updates.'}
+                No room records yet. Keep the positioning server running and wait for updates.
               </div>
             )}
           </section>

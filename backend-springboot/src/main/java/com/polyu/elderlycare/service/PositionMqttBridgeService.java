@@ -1,16 +1,13 @@
 package com.polyu.elderlycare.service;
 
-import com.polyu.elderlycare.dto.PositioningStatusResponse;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
@@ -55,18 +52,6 @@ public class PositionMqttBridgeService {
 
     private MqttAsyncClient mqttClient;
 
-        private final AtomicReference<PositioningStatusResponse> status = new AtomicReference<>(
-            new PositioningStatusResponse(
-                false,
-                false,
-                "UNKNOWN",
-                "Indoor positioning status not initialized yet",
-                null,
-                null,
-                Instant.now().toString()
-            )
-        );
-
     public PositionMqttBridgeService(
             PositionStreamService positionStreamService,
             ObjectMapper objectMapper
@@ -75,24 +60,16 @@ public class PositionMqttBridgeService {
         this.objectMapper = objectMapper;
     }
 
-    public PositioningStatusResponse getStatus() {
-        return status.get();
-    }
-
     @PostConstruct
     public void start() {
         if (!enabled) {
             log.info("Indoor positioning MQTT bridge is disabled via app.positioning.enabled=false");
-            updateStatus(false, false, "DISABLED", "Indoor positioning is disabled", null);
             return;
         }
 
         try {
             String brokerUri = String.format("tcp://%s:%d", mqttHost, mqttPort);
             String clientId = String.format("%s-%s", mqttClientIdPrefix, UUID.randomUUID().toString().substring(0, 8));
-
-            updateStatus(true, false, "STARTING", "Connecting to MQTT broker", brokerUri);
-
             mqttClient = new MqttAsyncClient(brokerUri, clientId);
             mqttClient.setCallback(new PositionMqttCallback());
 
@@ -107,14 +84,8 @@ public class PositionMqttBridgeService {
             }
 
             mqttClient.connect(options).waitForCompletion();
-            mqttClient.subscribe(mqttTopic, 0).waitForCompletion();
-
-            updateStatus(true, true, "CONNECTED", "Indoor positioning MQTT bridge connected", brokerUri);
             log.info("Indoor positioning MQTT bridge connected to {} and subscribed topic {}", brokerUri, mqttTopic);
         } catch (Exception ex) {
-            String brokerUri = String.format("tcp://%s:%d", mqttHost, mqttPort);
-            updateStatus(true, false, "FAILED", "Indoor positioning is unavailable: " + describeFailure(ex), brokerUri);
-            closeClientQuietly();
             log.error("Failed to start indoor positioning MQTT bridge", ex);
         }
     }
@@ -130,58 +101,9 @@ public class PositionMqttBridgeService {
                 mqttClient.disconnect();
             }
             mqttClient.close();
-            updateStatus(enabled, false, "STOPPED", "Indoor positioning MQTT bridge stopped", mqttClient.getServerURI());
         } catch (MqttException ex) {
             log.debug("Failed to stop indoor positioning MQTT bridge cleanly", ex);
         }
-    }
-
-    private void closeClientQuietly() {
-        if (mqttClient == null) {
-            return;
-        }
-
-        try {
-            if (mqttClient.isConnected()) {
-                mqttClient.disconnect();
-            }
-            mqttClient.close();
-        } catch (Exception ignored) {
-            // Best-effort cleanup only.
-        } finally {
-            mqttClient = null;
-        }
-    }
-
-    private void updateStatus(boolean enabledFlag, boolean availableFlag, String state, String message, String brokerUri) {
-        status.set(
-                new PositioningStatusResponse(
-                        enabledFlag,
-                        availableFlag,
-                        state,
-                        message,
-                        brokerUri,
-                        mqttTopic,
-                        Instant.now().toString()
-                )
-        );
-    }
-
-    private static String describeFailure(Throwable ex) {
-        if (ex == null) {
-            return "Unknown failure";
-        }
-
-        Throwable cursor = ex;
-        while (cursor.getCause() != null && cursor.getCause() != cursor) {
-            cursor = cursor.getCause();
-        }
-
-        String message = cursor.getMessage();
-        if (message == null || message.isBlank()) {
-            return cursor.getClass().getSimpleName();
-        }
-        return message;
     }
 
     private void onMessage(String topic, MqttMessage message) {
@@ -204,34 +126,24 @@ public class PositionMqttBridgeService {
                 return;
             }
 
-            if (!reconnect) {
-                return;
-            }
-
             try {
                 mqttClient.subscribe(mqttTopic, 0).waitForCompletion();
-                updateStatus(true, true, "RECONNECTED", "Indoor positioning MQTT bridge reconnected", serverURI);
                 log.info(
                         "Indoor positioning MQTT {} complete, subscribed to {}",
                         reconnect ? "reconnect" : "connect",
                         mqttTopic
                 );
             } catch (MqttException ex) {
-                updateStatus(true, false, "SUBSCRIBE_FAILED", "Indoor positioning subscription failed: " + describeFailure(ex), serverURI);
                 log.error("Failed to subscribe indoor positioning topic {}", mqttTopic, ex);
             }
         }
 
         @Override
         public void connectionLost(Throwable cause) {
-            String brokerUri = String.format("tcp://%s:%d", mqttHost, mqttPort);
             if (cause == null) {
-                updateStatus(true, false, "DISCONNECTED", "Indoor positioning MQTT connection lost", brokerUri);
                 log.warn("Indoor positioning MQTT connection lost");
                 return;
             }
-
-            updateStatus(true, false, "DISCONNECTED", "Indoor positioning MQTT connection lost: " + describeFailure(cause), brokerUri);
             log.warn("Indoor positioning MQTT connection lost: {}", cause.getMessage());
         }
 

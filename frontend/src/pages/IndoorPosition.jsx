@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MapPin, Radio } from 'lucide-react';
 import ElderAvatarMarker from '../components/ElderAvatarMarker';
 import { useAuth } from '../context/AuthContext';
-import { fetchIndoorPositioningStatus, fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
+import { fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
 import {
   ROOM_AXIS_TICKS_X,
   ROOM_AXIS_TICKS_Y,
@@ -74,24 +74,6 @@ const IndoorPosition = () => {
   const { token } = useAuth();
   const [livePosition, setLivePosition] = useState(null);
   const [streamConnected, setStreamConnected] = useState(false);
-  const [positioningStatus, setPositioningStatus] = useState(null);
-
-  const statusQuery = useQuery({
-    queryKey: ['indoorPositioningStatus'],
-    queryFn: fetchIndoorPositioningStatus,
-    enabled: !!token,
-    refetchInterval: 30_000,
-    retry: 1,
-  });
-
-  useEffect(() => {
-    if (statusQuery.data) {
-      setPositioningStatus(statusQuery.data);
-    }
-  }, [statusQuery.data]);
-
-  const positioningUnavailable = positioningStatus?.available === false;
-  const positioningUnavailableMessage = positioningStatus?.message;
 
   const latestQuery = useQuery({
     queryKey: ['latestIndoorPosition'],
@@ -113,11 +95,6 @@ const IndoorPosition = () => {
       return undefined;
     }
 
-    if (positioningUnavailable) {
-      setStreamConnected(false);
-      return undefined;
-    }
-
     const closeStream = openIndoorPositionStream(token, {
       onUpdate: (payload) => {
         const normalized = normalizeIndoorPositionPayload(payload);
@@ -126,12 +103,6 @@ const IndoorPosition = () => {
         }
         setLivePosition(normalized);
         setStreamConnected(true);
-      },
-      onStatus: (payload) => {
-        setPositioningStatus(payload);
-        if (payload?.available === false) {
-          setStreamConnected(false);
-        }
       },
       onError: () => {
         setStreamConnected(false);
@@ -142,7 +113,7 @@ const IndoorPosition = () => {
       closeStream();
       setStreamConnected(false);
     };
-  }, [token, positioningUnavailable]);
+  }, [token]);
 
   const status = useMemo(() => getStatusInfo(livePosition), [livePosition]);
   const currentRoom = useMemo(
@@ -170,18 +141,11 @@ const IndoorPosition = () => {
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-600">Indoor Positioning</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-900">Resident Indoor Location</h2>
               <p className="mt-2 text-sm text-slate-500">Integrated from BLE positioning server into this web dashboard.</p>
-
-              {positioningUnavailable ? (
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  <div className="font-semibold">Indoor positioning unavailable</div>
-                  <div className="mt-1 text-amber-700">{positioningUnavailableMessage || 'MQTT bridge is not connected.'}</div>
-                </div>
-              ) : null}
             </div>
             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2">
-              <Radio className={`h-4 w-4 ${positioningUnavailable ? 'text-amber-500' : (streamConnected ? 'text-emerald-500' : 'text-slate-400')}`} />
+              <Radio className={`h-4 w-4 ${streamConnected ? 'text-emerald-500' : 'text-slate-400'}`} />
               <span className="text-sm font-medium text-slate-700">
-                {positioningUnavailable ? 'Stream unavailable' : (streamConnected ? 'Stream online' : 'Stream reconnecting')}
+                {streamConnected ? 'Stream online' : 'Stream reconnecting'}
               </span>
             </div>
           </div>

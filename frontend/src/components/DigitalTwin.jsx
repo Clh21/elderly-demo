@@ -21,44 +21,6 @@ const DigitalTwin = ({ watchId, watchData, resident }) => {
   const residentName = resident?.name || (currentWatchId.includes('demo') ? 'Demo Patient' : 'Assigned Resident');
   const roomLabel = resident?.room ? `Room ${resident.room}` : 'Room unavailable';
 
-  const toEpochMillis = (value) => {
-    if (value == null) {
-      return null;
-    }
-    if (typeof value === 'number') {
-      if (value > 1_000_000_000_000) {
-        return value; // milliseconds
-      }
-      if (value > 1_000_000_000) {
-        return value * 1000; // seconds
-      }
-      return null;
-    }
-    if (typeof value === 'string') {
-      const parsed = Date.parse(value);
-      return Number.isNaN(parsed) ? null : parsed;
-    }
-    return null;
-  };
-
-  const wearStateRaw = watchData?.wearStateRaw;
-  const isCharging = Boolean(watchData?.isCharging);
-  const wearStatusTimestampMs = toEpochMillis(watchData?.wearStatusTimestamp);
-  const notWornLongEnough = wearStateRaw === 'not_worn'
-    && !isCharging
-    && wearStatusTimestampMs != null
-    && (Date.now() - wearStatusTimestampMs) >= 60 * 60 * 1000;
-
-  const deviceStatusLabel = watchData ? (notWornLongEnough ? 'Inactive' : 'Active') : '--';
-  const deviceStatusClass = watchData ? (notWornLongEnough ? 'text-red-600' : 'text-green-600') : 'text-slate-500';
-
-  const lastDataTimestampMs = toEpochMillis(watchData?.timestamp);
-  const connectedRecently = lastDataTimestampMs != null && (Date.now() - lastDataTimestampMs) < 60 * 60 * 1000;
-  const isConnected = Boolean(watchData?.dataAvailable) && connectedRecently;
-  const connectionLabel = watchData ? (isConnected ? 'Online' : 'Offline') : '--';
-  const connectionTextClass = watchData ? (isConnected ? 'text-green-600' : 'text-slate-600') : 'text-slate-500';
-  const connectionDotClassName = `w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`;
-
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
@@ -114,8 +76,10 @@ const DigitalTwin = ({ watchId, watchData, resident }) => {
             <Watch className="h-4 w-4 text-green-500" />
             <span className="text-sm font-medium">Device Status</span>
           </div>
-          <span className={`text-sm font-bold ${deviceStatusClass}`}>
-            {deviceStatusLabel}
+          <span className={`text-sm font-bold ${
+            watchData?.wearStatus === 'worn' ? 'text-green-600' : 'text-red-600'
+          }`}>
+            {watchData?.wearStatus === 'worn' ? 'Active' : 'Inactive'}
           </span>
         </div>
 
@@ -135,8 +99,8 @@ const DigitalTwin = ({ watchId, watchData, resident }) => {
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-600">Connection</span>
           <div className="flex items-center gap-2">
-            <div className={connectionDotClassName}></div>
-            <span className={`text-sm font-medium ${connectionTextClass}`}>{connectionLabel}</span>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-sm font-medium text-green-600">Online</span>
           </div>
         </div>
       </div>

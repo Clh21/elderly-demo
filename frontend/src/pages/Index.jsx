@@ -14,7 +14,7 @@ import OverviewStats from '../components/OverviewStats';
 import AlertPopup from '../components/AlertPopup';
 import { useAuth } from '../context/AuthContext';
 import { buildEdaBaseline, fetchAlerts, fetchElderlyResidents, fetchLatestAlerts, fetchOverviewStats, fetchWatchData } from '../services/api';
-import { fetchIndoorPositioningStatus, fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
+import { fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
 import { normalizeIndoorPositionPayload } from '../lib/indoorRooms';
 
 const formatDateTime = (value) => {
@@ -46,7 +46,6 @@ const Index = () => {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [indoorPosition, setIndoorPosition] = useState(null);
   const [roomHistory, setRoomHistory] = useState([]);
-  const [positioningStatus, setPositioningStatus] = useState(null);
   const lastSeenAlertId = useRef(0);
   const queryClient = useQueryClient();
 
@@ -83,22 +82,6 @@ const Index = () => {
     queryKey: ['residents'],
     queryFn: fetchElderlyResidents,
   });
-
-  const positioningStatusQuery = useQuery({
-    queryKey: ['indoorPositioningStatus', 'dashboard'],
-    queryFn: fetchIndoorPositioningStatus,
-    enabled: !!token,
-    refetchInterval: 30_000,
-    retry: 1,
-  });
-
-  useEffect(() => {
-    if (positioningStatusQuery.data) {
-      setPositioningStatus(positioningStatusQuery.data);
-    }
-  }, [positioningStatusQuery.data]);
-
-  const positioningUnavailable = positioningStatus?.available === false;
 
   useEffect(() => {
     if (!residents.length) {
@@ -146,23 +129,16 @@ const Index = () => {
       return undefined;
     }
 
-    if (positioningUnavailable) {
-      return undefined;
-    }
-
     const closeStream = openIndoorPositionStream(token, {
       onUpdate: (payload) => {
         handleIndoorUpdate(payload);
-      },
-      onStatus: (payload) => {
-        setPositioningStatus(payload);
       },
     });
 
     return () => {
       closeStream();
     };
-  }, [token, handleIndoorUpdate, positioningUnavailable]);
+  }, [token, handleIndoorUpdate]);
 
   const edaBaselineMutation = useMutation({
     mutationFn: (watchId) => buildEdaBaseline(watchId),
@@ -325,7 +301,6 @@ const Index = () => {
         onClose={() => setShowRoomModal(false)}
         currentPosition={indoorPosition}
         history={roomHistory}
-        positioningStatus={positioningStatus}
       />
 
       <div className="max-w-7xl mx-auto">
@@ -465,7 +440,6 @@ const Index = () => {
               currentPosition={indoorPosition}
               history={roomHistory}
               onTitleClick={() => setShowRoomModal(true)}
-              positioningStatus={positioningStatus}
             />
             <ElderModelDashboardCard />
           </div>

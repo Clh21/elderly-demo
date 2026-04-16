@@ -34,7 +34,7 @@ const Login = () => {
             <ShieldCheck className="h-7 w-7" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-600">Elder Care Login</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-600">RBAC Login</p>
             <h1 className="text-2xl font-semibold text-slate-900">Resident Data Access</h1>
           </div>
         </div>
