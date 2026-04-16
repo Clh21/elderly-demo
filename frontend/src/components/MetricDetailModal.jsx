@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ScatterChart, Scatter, ZAxis } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { CalendarIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -71,6 +71,28 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
   const availableDateSet = new Set(availableDateValues);
   const selectedDateValue = selectedDate || data?.selectedDate || '';
   const selectedDateObject = selectedDateValue ? parseISO(selectedDateValue) : undefined;
+
+  const wearStateChanges = isWearMetric
+    ? (summary.stateChanges != null
+        ? summary.stateChanges
+        : (() => {
+            const points = Array.isArray(data?.points) ? [...data.points] : [];
+            points.sort((left, right) => (left?.hourOfDay ?? 0) - (right?.hourOfDay ?? 0));
+            let changes = 0;
+            let previous = null;
+            for (const point of points) {
+              const current = point?.value;
+              if (current == null) {
+                continue;
+              }
+              if (previous != null && previous !== current) {
+                changes += 1;
+              }
+              previous = current;
+            }
+            return changes;
+          })())
+    : null;
 
   const handleDateSelect = (date) => {
     if (!date) {
@@ -170,7 +192,7 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                   <div className="mt-2 text-4xl font-bold text-slate-900">
                     {metric === 'heartRate'
                       ? (summary.resting != null ? summary.resting : '--')
-                      : (isEdaMetric ? (summary.dominantLabel || '--') : data.points.length)}
+                      : (isEdaMetric ? (summary.dominantLabel || '--') : (isWearMetric ? wearStateChanges : data.points.length))}
                     <span className="ml-2 text-xl font-medium text-slate-500">{metric === 'heartRate' ? unit : (isEdaMetric || isWearMetric ? '' : 'records')}</span>
                   </div>
                 </div>
@@ -179,7 +201,7 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
               <div className="h-[420px] rounded-xl border border-slate-200 bg-white p-4">
                 <ResponsiveContainer width="100%" height="100%">
                   {isWearMetric ? (
-                    <ScatterChart margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+                    <LineChart data={data.points} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                       <XAxis
                         type="number"
@@ -198,7 +220,6 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                         tick={{ fontSize: 12, fill: '#64748B' }}
                         width={80}
                       />
-                      <ZAxis dataKey="size" range={[160, 160]} />
                       <Tooltip
                         formatter={(_, __, payload) => [payload?.payload?.stateLabel || '--', 'Status']}
                         labelFormatter={(_, payload) => {
@@ -212,14 +233,15 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                           fontSize: '12px',
                         }}
                       />
-                      <Scatter
-                        data={data.points.map((point) => ({ ...point, size: 140 }))}
-                        shape={(props) => {
-                          const { cx, cy, payload } = props;
-                          return <rect x={cx - 4} y={cy - 24} width={8} height={48} rx={4} fill={payload.color} />;
-                        }}
+                      <Line
+                        type="stepAfter"
+                        dataKey="value"
+                        stroke={chartColor}
+                        strokeWidth={4}
+                        dot={false}
+                        activeDot={{ r: 5, fill: chartColor }}
                       />
-                    </ScatterChart>
+                    </LineChart>
                   ) : (
                     <LineChart data={data.points} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />

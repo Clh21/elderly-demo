@@ -173,20 +173,61 @@ void sortSlotSamplesBySlot() {
 // =====================================================
 // ============ BLE 扫描回调 ============
 // =====================================================
+static bool isTargetIBeacon(const BLEAdvertisedDevice& device) {
+    if (!device.haveManufacturerData()) {
+        return false;
+    }
+
+    std::string md = device.getManufacturerData();
+    const uint8_t* data = (const uint8_t*)md.data();
+    const size_t len = md.length();
+
+    // iBeacon manufacturer data commonly appears as either:
+    //   A) 0x4C 0x00 0x02 0x15 + UUID(16) + major(2) + minor(2) + power(1)
+    //   B) 0x02 0x15 + UUID(16) + major(2) + minor(2) + power(1)
+    int uuidStart = -1;
+    int majorStart = -1;
+
+    if (len >= 25 && data[0] == 0x4C && data[1] == 0x00 && data[2] == 0x02 && data[3] == 0x15) {
+        uuidStart = 4;
+        majorStart = 20;
+    } else if (len >= 23 && data[0] == 0x02 && data[1] == 0x15) {
+        uuidStart = 2;
+        majorStart = 18;
+    } else {
+        return false;
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if ((uint8_t)data[uuidStart + i] != TARGET_IBEACON_UUID[i]) {
+            return false;
+        }
+    }
+
+    const uint16_t major = ((uint16_t)data[majorStart] << 8) | (uint16_t)data[majorStart + 1];
+    const uint16_t minor = ((uint16_t)data[majorStart + 2] << 8) | (uint16_t)data[majorStart + 3];
+
+    return (major == TARGET_IBEACON_MAJOR) && (minor == TARGET_IBEACON_MINOR);
+}
+
 class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice device) {
-        String mac = device.getAddress().toString().c_str();
-        if (mac.equalsIgnoreCase(TARGET_MAC)) {
-            if (!timeSynced) return;
-
-            int raw = device.getRSSI();
-            float filtered = kalmanFilter((float)raw);
-            uint64_t epochMs = getEpochMsNow();
-            if (epochMs == 0) return;
-
-            uint32_t slot = (uint32_t)(epochMs / (uint64_t)BEACON_ADV_INTERVAL_MS);
-            upsertSlotSample(slot, raw, filtered, epochMs);
+        if (!isTargetIBeacon(device)) {
+            return;
         }
+        if (!timeSynced) return;
+
+        int raw = device.getRSSI();
+        float filtered = kalmanFilter((float)raw);
+        uint64_t epochMs = getEpochMsNow();
+        if (epochMs == 0) return;
+
+        // Round-to-nearest slot to reduce boundary mismatches across anchors.
+        uint32_t slot = (uint32_t)(
+            (epochMs + ((uint64_t)BEACON_ADV_INTERVAL_MS / 2ULL))
+            / (uint64_t)BEACON_ADV_INTERVAL_MS
+        );
+        upsertSlotSample(slot, raw, filtered, epochMs);
     }
 };
 
@@ -297,7 +338,9 @@ void publishRSSI(int rawRSSI, float filteredRSSI, uint64_t rxEpochMs, uint32_t p
     // 使用 ArduinoJson 构建 JSON
     JsonDocument doc;
     doc["anchor"]   = BEACON_ID;
-    doc["target"]   = TARGET_MAC;
+    doc["target"]   = TARGET_IBEACON_UUID_STR;
+    doc["target_major"] = TARGET_IBEACON_MAJOR;
+    doc["target_minor"] = TARGET_IBEACON_MINOR;
     doc["raw"]      = rawRSSI;
     doc["filtered"] = round(filteredRSSI * 10.0) / 10.0;  // 保留1位小数
     doc["ts"]       = millis();
@@ -344,7 +387,7 @@ void setup() {
     Serial.println("============================================");
     Serial.println("  ESP32 BLE + MQTT 室内定位锚点");
     Serial.printf("  节点 ID: %s\n", BEACON_ID);
-    Serial.printf("  目标信标: %s\n", TARGET_MAC);
+    Serial.printf("  目标信标: %s (%u/%u)\n", TARGET_IBEACON_UUID_STR, (unsigned)TARGET_IBEACON_MAJOR, (unsigned)TARGET_IBEACON_MINOR);
     Serial.println("============================================");
 
     // 构建 MQTT Topic
@@ -369,7 +412,8 @@ void setup() {
     // 初始化 BLE
     BLEDevice::init("ESP32_Anchor");
     pBLEScan = BLEDevice::getScan();
-    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks());
+    // Enable duplicates so we can collect multiple RSSI samples per scan window.
+    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);

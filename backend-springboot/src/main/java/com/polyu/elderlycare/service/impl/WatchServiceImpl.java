@@ -132,7 +132,11 @@ public class WatchServiceImpl implements WatchService {
         Double wristTemperature = toDouble(valueOf(latestTemperature, "wrist_temperature"));
         Double ambientTemperature = toDouble(valueOf(latestTemperature, "ambient_temperature"));
         Double eda = toDouble(valueOf(latestEda, "eda"));
-        EdaInterpretation edaInterpretation = interpretEdaStressState(eda, asString(valueOf(latestEda, "eda_label")));
+        EdaInterpretation edaInterpretation = interpretEdaStressState(
+            eda,
+            asString(valueOf(latestEda, "eda_label")),
+            edaBaselineProfile
+        );
 
         String wearStatus = firstNonNull(
                 asString(valueOf(latestWear, "wear_status")),
@@ -245,7 +249,7 @@ public class WatchServiceImpl implements WatchService {
         response.put("timestamp", toResponseTimeValue(row.get("minute_slot")));
         response.put("heartRateHistory", heartRateHistoryRows.isEmpty() ? List.of() : buildHistory(heartRateHistoryRows, "heart_rate"));
         response.put("temperatureHistory", temperatureHistoryRows.isEmpty() ? List.of() : buildHistory(temperatureHistoryRows, "temperature"));
-        response.put("edaHistory", edaHistoryRows.isEmpty() ? List.of() : buildEdaHistory(edaHistoryRows));
+        response.put("edaHistory", edaHistoryRows.isEmpty() ? List.of() : buildEdaHistory(edaHistoryRows, edaBaselineProfile));
         response.put("wearHistory", wearHistoryRows.isEmpty() ? List.of() : buildWearHistory(wearHistoryRows));
         response.put("ecgHistory", ecgSummary.get("ecgHistory"));
         return response;
@@ -368,8 +372,11 @@ public class WatchServiceImpl implements WatchService {
         }
 
         String selectedDate = availableDates.contains(date) ? date : availableDates.get(0);
+        Map<String, Object> edaBaselineProfile = "eda".equals(metric)
+            ? watchDataRepository.findEdaBaselineProfile(watchId).orElse(null)
+            : null;
         List<Map<String, Object>> rows = watchDataRepository.findMetricRows(watchId, metric, config.column(), selectedDate);
-        LinkedHashMap<String, Object> response = new LinkedHashMap<>(buildDailyMetricResponse(metric, config, selectedDate, rows));
+        LinkedHashMap<String, Object> response = new LinkedHashMap<>(buildDailyMetricResponse(metric, config, selectedDate, rows, edaBaselineProfile));
         response.put("availableDates", availableDates.stream()
                 .map(value -> Map.of("value", value, "label", formatDayOption(value)))
                 .toList());
@@ -1065,10 +1072,10 @@ public class WatchServiceImpl implements WatchService {
         }).toList();
     }
 
-    private List<Map<String, Object>> buildEdaHistory(List<Map<String, Object>> rows) {
+    private List<Map<String, Object>> buildEdaHistory(List<Map<String, Object>> rows, Map<String, Object> edaBaselineProfile) {
         return rows.stream().<Map<String, Object>>map(row -> {
             Double rawEda = toDouble(row.get("eda"));
-            EdaInterpretation interpretation = interpretEdaStressState(rawEda, asString(row.get("eda_label")));
+            EdaInterpretation interpretation = interpretEdaStressState(rawEda, asString(row.get("eda_label")), edaBaselineProfile);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("time", formatClockLabel(row.get("recorded_at"), false));
             item.put("value", interpretation.stateLevel());
@@ -1223,7 +1230,7 @@ public class WatchServiceImpl implements WatchService {
         return table[table.length - 1][1];
     }
 
-    private Map<String, Object> buildDailyMetricResponse(String metricKey, MetricConfig config, String selectedDate, List<Map<String, Object>> rows) {
+    private Map<String, Object> buildDailyMetricResponse(String metricKey, MetricConfig config, String selectedDate, List<Map<String, Object>> rows, Map<String, Object> edaBaselineProfile) {
         if ("wearStatus".equals(metricKey)) {
             List<Map<String, Object>> points = rows.stream()
                     .<Map<String, Object>>map(row -> {
@@ -1262,6 +1269,20 @@ public class WatchServiceImpl implements WatchService {
             summary.put("latestLabel", latestPoint == null ? null : latestPoint.get("stateLabel"));
             summary.put("latestTimestamp", latestPoint == null ? null : latestPoint.get("timestamp"));
 
+            int stateChanges = 0;
+            Integer previousState = null;
+            for (Map<String, Object> point : points) {
+                Integer currentState = toInteger(point.get("value"));
+                if (currentState == null) {
+                    continue;
+                }
+                if (previousState != null && !Objects.equals(previousState, currentState)) {
+                    stateChanges++;
+                }
+                previousState = currentState;
+            }
+            summary.put("stateChanges", stateChanges);
+
             LinkedHashMap<String, Object> response = new LinkedHashMap<>();
             response.put("metric", metricKey);
             response.put("label", config.label());
@@ -1280,7 +1301,7 @@ public class WatchServiceImpl implements WatchService {
                             return null;
                         }
                         Double rawEda = toDouble(row.get("eda"));
-                        EdaInterpretation interpretation = interpretEdaStressState(rawEda, asString(row.get("eda_label")));
+                        EdaInterpretation interpretation = interpretEdaStressState(rawEda, asString(row.get("eda_label")), edaBaselineProfile);
                         if (interpretation.stateLevel() == null) {
                             return null;
                         }
@@ -1337,6 +1358,9 @@ public class WatchServiceImpl implements WatchService {
             return response;
         }
 
+        // Non-EDA metrics default to the fixed-threshold interpretation.
+        // (Keep a backwards-compatible overload so existing call sites stay simple.)
+
         List<Map<String, Object>> points = rows.stream()
                 .<Map<String, Object>>map(row -> {
                     LocalDateTime dateTime = toLocalDateTime(firstNonNull(row.get("source_timestamp"), row.get("minute_slot")));
@@ -1377,6 +1401,10 @@ public class WatchServiceImpl implements WatchService {
         response.put("summary", summary);
         response.put("points", points);
         return response;
+    }
+
+    private Map<String, Object> buildDailyMetricResponse(String metricKey, MetricConfig config, String selectedDate, List<Map<String, Object>> rows) {
+        return buildDailyMetricResponse(metricKey, config, selectedDate, rows, null);
     }
 
     @Override
@@ -2328,6 +2356,58 @@ public class WatchServiceImpl implements WatchService {
             return new EdaInterpretation("Stable", 2, "normal");
         }
         return new EdaInterpretation(null, null, "unavailable");
+    }
+
+    /**
+     * Baseline-aware EDA interpretation.
+     *
+     * Rule:
+     * - If a buildable baseline profile exists (PRELIMINARY / ESTABLISHED) and has valid P25/P75,
+     *   classify relative to that person's baseline band.
+     * - Otherwise, fall back to the fixed-threshold method.
+     */
+    private EdaInterpretation interpretEdaStressState(Double edaValue, String edaLabel, Map<String, Object> edaBaselineProfile) {
+        EdaBaselineStage stage = edaBaselineProfile == null
+                ? EdaBaselineStage.NOT_BUILT
+                : EdaBaselineStage.fromCode(asString(valueOf(edaBaselineProfile, "stage")));
+        if (!stage.buildable()) {
+            return interpretEdaStressState(edaValue, edaLabel);
+        }
+
+        // Preserve label-based fallback when numeric value is missing.
+        if (edaValue == null) {
+            return interpretEdaStressState(null, edaLabel);
+        }
+
+        // Preserve the existing artifact filter.
+        if (edaValue > 5.0) {
+            return new EdaInterpretation("Artifact", null, "unavailable");
+        }
+
+        Double baselineP25 = toDouble(valueOf(edaBaselineProfile, "baseline_p25"));
+        Double baselineP75 = toDouble(valueOf(edaBaselineProfile, "baseline_p75"));
+        if (baselineP25 == null || baselineP75 == null) {
+            return interpretEdaStressState(edaValue, edaLabel);
+        }
+
+        double spread = baselineP75 - baselineP25;
+        if (!(spread > 0.0) || Double.isNaN(spread) || Double.isInfinite(spread)) {
+            return interpretEdaStressState(edaValue, edaLabel);
+        }
+
+        // Guard against an overly narrow baseline band.
+        double iqr = Math.max(spread, 0.2);
+
+        if (edaValue <= baselineP25) {
+            return new EdaInterpretation("Relaxed", 1, "normal");
+        }
+        if (edaValue <= baselineP75) {
+            return new EdaInterpretation("Stable", 2, "normal");
+        }
+        if (edaValue <= baselineP75 + iqr) {
+            return new EdaInterpretation("Elevated stress", 3, "warning");
+        }
+        return new EdaInterpretation("High stress", 4, "warning");
     }
 
     private WearStatePresentation getWearStatePresentation(String wearStatus, boolean isCharging) {

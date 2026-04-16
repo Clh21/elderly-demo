@@ -37,18 +37,21 @@ STRICT_INROOM_OUTPUT = True
 VISUAL_VIEW_TRANSFORM = "none"
 
 # Positioning loop behavior
-# 30-second snapshot mode (aligned with interim report requirement).
-POSITION_UPDATE_INTERVAL_SEC = 30.0
-SNAPSHOT_WINDOW_SEC = 30.0
-MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 8
-MAX_READING_AGE_SEC = 35.0
+# Low-latency snapshot mode (better for live tracking).
+# For 30s interim-report snapshots, set both values to 30.0.
+POSITION_UPDATE_INTERVAL_SEC = 2.0
+SNAPSHOT_WINDOW_SEC = 3.0
+MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 2
+MAX_READING_AGE_SEC = 6.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 250
-MIN_SYNC_FRAMES_PER_UPDATE = 2
+# 1 = publish as soon as any same-slot 3-anchor frame exists (lowest latency).
+# 2+ = requires multiple frames within the window (more stable, more delay).
+MIN_SYNC_FRAMES_PER_UPDATE = 1
 
 # Packet-slot alignment robustness (server-side only, no firmware reflashing needed).
 SLOT_SYNC_REFERENCE_ANCHOR = "anchor_01"
@@ -76,12 +79,14 @@ MIN_DISTANCE_M = 0.2
 MAX_DISTANCE_M = 13.0
 
 # Smooth final position output (exponential smoothing).
+# Higher alpha = less lag (more responsive), lower alpha = smoother (more lag).
 USE_POSITION_SMOOTHING = True
-POSITION_SMOOTHING_ALPHA = 0.18
+POSITION_SMOOTHING_ALPHA = 0.55
 
 # Aggregate recent solved positions for a more stable reported coordinate.
+# Smaller window = less lag.
 USE_POSITION_AGGREGATION = True
-POSITION_AGGREGATION_WINDOW = 3
+POSITION_AGGREGATION_WINDOW = 2
 POSITION_AGGREGATION_MODE = "median"  # "median" or "mean"
 
 # Stationary hold: lock coordinates when movement is tiny to prevent drift.
