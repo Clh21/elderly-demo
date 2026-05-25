@@ -14,7 +14,8 @@ public class AuthInterceptor implements HandlerInterceptor {
     private static final Set<String> PUBLIC_PATHS = Set.of(
             "/api/auth/login",
             "/api/samsung-watch",
-            "/api/watch-reading"
+            "/api/watch-reading",
+            "/api/watch-pairing/handshake"
     );
 
     private final AuthService authService;

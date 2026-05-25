@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -39,6 +40,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> handleBadRequest(HttpServletRequest request, IllegalArgumentException ex) {
         return buildErrorResponse(request, HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<?> handleResponseStatus(HttpServletRequest request, ResponseStatusException ex) {
+        String message = ex.getReason() == null ? ex.getMessage() : ex.getReason();
+        return buildErrorResponse(request, HttpStatus.valueOf(ex.getStatusCode().value()), message);
     }
 
     @ExceptionHandler(Exception.class)

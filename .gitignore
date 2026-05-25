@@ -53,5 +53,6 @@ ecg_analysis/ecg_plot_*.png
 
 # IDE / OS files
 .idea/
+.vscode/
 .DS_Store
 Thumbs.db
