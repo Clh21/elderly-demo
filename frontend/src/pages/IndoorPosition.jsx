@@ -1,17 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { MapPin, Radio } from 'lucide-react';
-import ElderAvatarMarker from '../components/ElderAvatarMarker';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { MapPin, Pause, Play, Radio, Settings2, X } from 'lucide-react';
+import IndoorLayoutEditor from '../components/IndoorLayoutEditor';
+import IndoorMapCanvas from '../components/IndoorMapCanvas';
 import { useAuth } from '../context/AuthContext';
+import {
+  fetchActiveIndoorLayout,
+  fetchIndoorSimulatorStatus,
+  resetActiveIndoorLayout,
+  saveActiveIndoorLayout,
+  updateIndoorSimulatorStatus,
+} from '../services/indoorLayoutApi';
 import { fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
 import {
-  ROOM_AXIS_TICKS_X,
-  ROOM_AXIS_TICKS_Y,
-  ROOM_HEIGHT_M,
-  ROOM_WIDTH_M,
-  ROOM_ZONES,
-  formatAxisTick,
   formatIndoorTimestamp,
+  normalizeIndoorLayout,
   normalizeIndoorPositionPayload,
 } from '../lib/indoorRooms';
 
@@ -58,22 +61,36 @@ const getStatusInfo = (position) => {
   };
 };
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-
-const zoneRect = (zone) => ({
-  x: zone.bounds.xMin,
-  y: ROOM_HEIGHT_M - zone.bounds.yMax,
-  width: zone.bounds.xMax - zone.bounds.xMin,
-  height: zone.bounds.yMax - zone.bounds.yMin,
-});
-
-const isBorderTick = (tick, maxValue) => tick === 0 || Math.abs(tick - maxValue) < 0.001;
-const meterToSvgY = (meterValue) => ROOM_HEIGHT_M - meterValue;
+const formatMetric = (value, suffix = '', digits = 2) => {
+  if (value == null) {
+    return '--';
+  }
+  return `${Number(value).toFixed(digits)}${suffix}`;
+};
 
 const IndoorPosition = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const queryClient = useQueryClient();
   const [livePosition, setLivePosition] = useState(null);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+
+  const layoutQuery = useQuery({
+    queryKey: ['activeIndoorLayout'],
+    queryFn: fetchActiveIndoorLayout,
+    enabled: !!token,
+    retry: 1,
+  });
+
+  const simulatorQuery = useQuery({
+    queryKey: ['indoorSimulatorStatus'],
+    queryFn: fetchIndoorSimulatorStatus,
+    enabled: !!token,
+    refetchInterval: 10_000,
+    retry: 1,
+  });
+
+  const layout = useMemo(() => normalizeIndoorLayout(layoutQuery.data), [layoutQuery.data]);
 
   const latestQuery = useQuery({
     queryKey: ['latestIndoorPosition'],
@@ -84,11 +101,11 @@ const IndoorPosition = () => {
   });
 
   useEffect(() => {
-    const normalized = normalizeIndoorPositionPayload(latestQuery.data);
+    const normalized = normalizeIndoorPositionPayload(latestQuery.data, layout);
     if (normalized) {
       setLivePosition(normalized);
     }
-  }, [latestQuery.data]);
+  }, [latestQuery.data, layout]);
 
   useEffect(() => {
     if (!token) {
@@ -97,7 +114,7 @@ const IndoorPosition = () => {
 
     const closeStream = openIndoorPositionStream(token, {
       onUpdate: (payload) => {
-        const normalized = normalizeIndoorPositionPayload(payload);
+        const normalized = normalizeIndoorPositionPayload(payload, layout);
         if (!normalized) {
           return;
         }
@@ -113,24 +130,35 @@ const IndoorPosition = () => {
       closeStream();
       setStreamConnected(false);
     };
-  }, [token]);
+  }, [token, layout]);
+
+  const saveMutation = useMutation({
+    mutationFn: saveActiveIndoorLayout,
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['activeIndoorLayout'], saved);
+      queryClient.invalidateQueries({ queryKey: ['latestIndoorPosition'] });
+      setShowEditor(false);
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: resetActiveIndoorLayout,
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['activeIndoorLayout'], saved);
+      queryClient.invalidateQueries({ queryKey: ['latestIndoorPosition'] });
+    },
+  });
+
+  const simulatorMutation = useMutation({
+    mutationFn: updateIndoorSimulatorStatus,
+    onSuccess: (status) => {
+      queryClient.setQueryData(['indoorSimulatorStatus'], status);
+    },
+  });
 
   const status = useMemo(() => getStatusInfo(livePosition), [livePosition]);
-  const currentRoom = useMemo(
-    () => ROOM_ZONES.find((zone) => zone.id === livePosition?.roomId) || null,
-    [livePosition]
-  );
-
-  const positionX = livePosition ? clamp(livePosition.x, 0, ROOM_WIDTH_M) : null;
-  const positionY = livePosition ? clamp(livePosition.y, 0, ROOM_HEIGHT_M) : null;
-  const svgY = positionY == null ? null : meterToSvgY(positionY);
-
-  const formatMetric = (value, suffix = '', digits = 2) => {
-    if (value == null) {
-      return '--';
-    }
-    return `${Number(value).toFixed(digits)}${suffix}`;
-  };
+  const canEdit = user?.role === 'ADMIN';
+  const distanceEntries = Object.entries(livePosition?.distancesM || {});
 
   return (
     <main className="min-h-screen bg-slate-100 p-6">
@@ -139,146 +167,55 @@ const IndoorPosition = () => {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-600">Indoor Positioning</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-900">Resident Indoor Location</h2>
-              <p className="mt-2 text-sm text-slate-500">Integrated from BLE positioning server into this web dashboard.</p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-900">Configurable 2D Indoor Layout</h2>
+              <p className="mt-2 text-sm text-slate-500">Preview resident movement, then open the layout editor when room setup needs changes.</p>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2">
-              <Radio className={`h-4 w-4 ${streamConnected ? 'text-emerald-500' : 'text-slate-400'}`} />
-              <span className="text-sm font-medium text-slate-700">
-                {streamConnected ? 'Stream online' : 'Stream reconnecting'}
-              </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2">
+                <Radio className={`h-4 w-4 ${streamConnected ? 'text-emerald-500' : 'text-slate-400'}`} />
+                <span className="text-sm font-medium text-slate-700">
+                  {streamConnected ? 'Stream online' : 'Stream reconnecting'}
+                </span>
+              </div>
             </div>
           </div>
         </header>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900">Room Map</h3>
-
-            <svg
-              viewBox={`0 0 ${ROOM_WIDTH_M} ${ROOM_HEIGHT_M}`}
-              className="h-[420px] w-full rounded-xl bg-slate-50"
-            >
-              <rect
-                x="0"
-                y="0"
-                width={ROOM_WIDTH_M}
-                height={ROOM_HEIGHT_M}
-                fill="#ffffff"
-                stroke="#334155"
-                strokeWidth="0.05"
-              />
-
-              {ROOM_AXIS_TICKS_X.map((tick) => {
-                if (isBorderTick(tick, ROOM_WIDTH_M)) {
-                  return null;
-                }
-
-                return (
-                  <line
-                    key={`grid-x-${tick}`}
-                    x1={tick}
-                    y1="0"
-                    x2={tick}
-                    y2={ROOM_HEIGHT_M}
-                    stroke="#e2e8f0"
-                    strokeWidth="0.02"
-                    strokeDasharray="0.08 0.08"
-                  />
-                );
-              })}
-
-              {ROOM_AXIS_TICKS_Y.map((tick) => {
-                if (isBorderTick(tick, ROOM_HEIGHT_M)) {
-                  return null;
-                }
-
-                const yValue = meterToSvgY(tick);
-                return (
-                  <line
-                    key={`grid-y-${tick}`}
-                    x1="0"
-                    y1={yValue}
-                    x2={ROOM_WIDTH_M}
-                    y2={yValue}
-                    stroke="#e2e8f0"
-                    strokeWidth="0.02"
-                    strokeDasharray="0.08 0.08"
-                  />
-                );
-              })}
-
-              {ROOM_ZONES.map((zone) => {
-                const rect = zoneRect(zone);
-                const active = livePosition?.roomId === zone.id;
-                return (
-                  <g key={zone.id}>
-                    <rect
-                      x={rect.x}
-                      y={rect.y}
-                      width={rect.width}
-                      height={rect.height}
-                      fill={active ? zone.color : `${zone.color}22`}
-                      stroke={zone.color}
-                      strokeWidth={active ? '0.07' : '0.04'}
-                      rx="0.04"
-                    />
-                    <text
-                      x={rect.x + rect.width / 2}
-                      y={rect.y + rect.height / 2}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize="0.18"
-                      fill={active ? '#0f172a' : '#334155'}
-                      fontWeight={active ? '700' : '500'}
-                    >
-                      {zone.label}
-                    </text>
-                  </g>
-                );
-              })}
-
-              <g>
-                <line x1="0" y1={ROOM_HEIGHT_M} x2={ROOM_WIDTH_M} y2={ROOM_HEIGHT_M} stroke="#1f2937" strokeWidth="0.03" />
-                <line x1="0" y1="0" x2="0" y2={ROOM_HEIGHT_M} stroke="#1f2937" strokeWidth="0.03" />
-
-                {ROOM_AXIS_TICKS_X.map((tick) => (
-                  <g key={`axis-x-${tick}`}>
-                    <line x1={tick} y1={ROOM_HEIGHT_M} x2={tick} y2={ROOM_HEIGHT_M - 0.08} stroke="#1f2937" strokeWidth="0.03" />
-                    <text
-                      x={tick}
-                      y={ROOM_HEIGHT_M - 0.13}
-                      textAnchor={tick === 0 ? 'start' : (isBorderTick(tick, ROOM_WIDTH_M) ? 'end' : 'middle')}
-                      fontSize="0.12"
-                      fill="#334155"
-                    >
-                      {formatAxisTick(tick)}
-                    </text>
-                  </g>
-                ))}
-
-                {ROOM_AXIS_TICKS_Y.map((tick) => {
-                  const yValue = meterToSvgY(tick);
-                  return (
-                    <g key={`axis-y-${tick}`}>
-                      <line x1="0" y1={yValue} x2="0.08" y2={yValue} stroke="#1f2937" strokeWidth="0.03" />
-                      <text x="0.12" y={yValue + 0.04} textAnchor="start" fontSize="0.12" fill="#334155">
-                        {formatAxisTick(tick)}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                <text x={ROOM_WIDTH_M - 0.08} y={ROOM_HEIGHT_M - 0.28} textAnchor="end" fontSize="0.12" fill="#0f172a" fontWeight="600">
-                  X (m)
-                </text>
-                <text x="0.1" y="0.24" textAnchor="start" fontSize="0.12" fill="#0f172a" fontWeight="600">
-                  Y (m)
-                </text>
-              </g>
-
-              <ElderAvatarMarker x={positionX} y={svgY} scale={1.05} />
-            </svg>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-slate-900">Live Position Preview</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => simulatorMutation.mutate(!simulatorQuery.data?.enabled)}
+                  disabled={!canEdit || simulatorMutation.isPending}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    simulatorQuery.data?.enabled
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {simulatorQuery.data?.enabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {simulatorQuery.data?.enabled ? 'Stop Simulator' : 'Start Simulator'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEditor(true)}
+                  disabled={!canEdit}
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  Edit Layout
+                </button>
+              </div>
+            </div>
+            <IndoorMapCanvas
+              layout={layout}
+              position={livePosition}
+              editable={false}
+              className="h-[420px] w-full"
+            />
           </section>
 
           <aside className="space-y-4">
@@ -287,10 +224,11 @@ const IndoorPosition = () => {
               <div className="mt-3 flex items-center gap-2 text-slate-900">
                 <MapPin className="h-5 w-5 text-rose-500" />
                 <span className="text-xl font-semibold">
-                  {positionX != null && positionY != null ? `(${positionX.toFixed(3)}, ${positionY.toFixed(3)}) m` : '--'}
+                  {livePosition ? `(${livePosition.x.toFixed(3)}, ${livePosition.y.toFixed(3)}) m` : '--'}
                 </span>
               </div>
-              <p className="mt-2 text-sm text-slate-500">Room: {currentRoom?.label || 'Waiting for update'}</p>
+              <p className="mt-2 text-sm text-slate-500">Room: {livePosition?.roomLabel || 'Waiting for update'}</p>
+              <p className="mt-1 text-xs text-slate-400">Source: {livePosition?.source || '--'}</p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -331,8 +269,50 @@ const IndoorPosition = () => {
                 </div>
               </div>
             </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Receiver Distances</p>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                {distanceEntries.length ? distanceEntries.map(([anchorId, distance]) => (
+                  <div key={anchorId} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-800">{anchorId}</span>
+                    <span className="text-slate-600">{formatMetric(distance, ' m', 3)}</span>
+                  </div>
+                )) : (
+                  <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">Distances will appear when simulated or MQTT position data arrives.</div>
+                )}
+              </div>
+            </div>
           </aside>
         </div>
+
+        {showEditor ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">Indoor Layout Editor</h2>
+                  <p className="text-sm text-slate-500">Edit room areas, furniture, and receiver node placement.</p>
+                </div>
+                <button type="button" onClick={() => setShowEditor(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+              <div className="p-6">
+                <IndoorLayoutEditor
+                  layout={layout}
+                  simulatorStatus={simulatorQuery.data}
+                  isSaving={saveMutation.isPending}
+                  isResetting={resetMutation.isPending}
+                  canEdit={canEdit}
+                  livePosition={livePosition}
+                  onSave={(draft) => saveMutation.mutate(draft)}
+                  onReset={() => resetMutation.mutate()}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );

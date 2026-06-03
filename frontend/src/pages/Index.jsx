@@ -14,8 +14,9 @@ import OverviewStats from '../components/OverviewStats';
 import AlertPopup from '../components/AlertPopup';
 import { useAuth } from '../context/AuthContext';
 import { buildEdaBaseline, fetchAlerts, fetchElderlyResidents, fetchLatestAlerts, fetchOverviewStats, fetchWatchData } from '../services/api';
+import { fetchActiveIndoorLayout } from '../services/indoorLayoutApi';
 import { fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
-import { normalizeIndoorPositionPayload } from '../lib/indoorRooms';
+import { normalizeIndoorLayout, normalizeIndoorPositionPayload } from '../lib/indoorRooms';
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -49,8 +50,20 @@ const Index = () => {
   const lastSeenAlertId = useRef(0);
   const queryClient = useQueryClient();
 
+  const { data: activeIndoorLayoutPayload } = useQuery({
+    queryKey: ['activeIndoorLayout'],
+    queryFn: fetchActiveIndoorLayout,
+    enabled: !!token,
+    retry: 1,
+  });
+
+  const activeIndoorLayout = React.useMemo(
+    () => normalizeIndoorLayout(activeIndoorLayoutPayload),
+    [activeIndoorLayoutPayload]
+  );
+
   const handleIndoorUpdate = useCallback((payload) => {
-    const normalized = normalizeIndoorPositionPayload(payload);
+    const normalized = normalizeIndoorPositionPayload(payload, activeIndoorLayout);
     if (!normalized) {
       return;
     }
@@ -76,7 +89,7 @@ const Index = () => {
         ...prev,
       ].slice(0, 32);
     });
-  }, []);
+  }, [activeIndoorLayout]);
 
   const { data: residents = [] } = useQuery({
     queryKey: ['residents'],
@@ -301,6 +314,7 @@ const Index = () => {
         onClose={() => setShowRoomModal(false)}
         currentPosition={indoorPosition}
         history={roomHistory}
+        layout={activeIndoorLayout}
       />
 
       <div className="max-w-7xl mx-auto">
@@ -439,6 +453,7 @@ const Index = () => {
             <RoomLocationCard
               currentPosition={indoorPosition}
               history={roomHistory}
+              layout={activeIndoorLayout}
               onTitleClick={() => setShowRoomModal(true)}
             />
             <ElderModelDashboardCard />

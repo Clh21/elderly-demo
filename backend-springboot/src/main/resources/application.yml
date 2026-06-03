@@ -9,7 +9,7 @@ spring:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:elderly}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Hong_Kong
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
-  jpa:
+  jpa: 
     database-platform: org.hibernate.dialect.MySQLDialect
     hibernate:
       ddl-auto: none
@@ -38,6 +38,11 @@ app:
     mqtt-client-id: ${POSITIONING_MQTT_CLIENT_ID:elderlycare-position-bridge}
     mqtt-username: ${POSITIONING_MQTT_USERNAME:}
     mqtt-password: ${POSITIONING_MQTT_PASSWORD:}
+    simulator:
+      enabled: ${POSITIONING_SIMULATOR_ENABLED:false}
+      interval-ms: ${POSITIONING_SIMULATOR_INTERVAL_MS:2000}
+  indoor-layout:
+    storage-file: ${INDOOR_LAYOUT_STORAGE_FILE:./data/indoor-layout-active.json}
   auth:
     token-ttl: 12h
     accounts:

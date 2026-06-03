@@ -1,0 +1,116 @@
+{
+  "id" : "active-room",
+  "name" : "Demo Care Room",
+  "widthM" : 11.0,
+  "heightM" : 6.0,
+  "zones" : [ {
+    "id" : "bedroom",
+    "label" : "Bedroom",
+    "type" : "bedroom",
+    "x" : 0.0,
+    "y" : 0.0,
+    "width" : 6.800000000000001,
+    "height" : 4.4,
+    "color" : "#6366F1",
+    "notes" : "Main sleeping and resting area"
+  }, {
+    "id" : "toilet",
+    "label" : "Toilet",
+    "type" : "toilet",
+    "x" : 0.0,
+    "y" : 4.4,
+    "width" : 3.0,
+    "height" : 1.6,
+    "color" : "#0EA5E9",
+    "notes" : "Toilet and hygiene area"
+  }, {
+    "id" : "living_room",
+    "label" : "Living Room",
+    "type" : "living_room",
+    "x" : 6.8,
+    "y" : 0.0,
+    "width" : 4.2,
+    "height" : 6.0,
+    "color" : "#F59E0B",
+    "notes" : "Living and activity area"
+  }, {
+    "id" : "zone-mpy0zrsx-8f8b",
+    "label" : "Kitchen",
+    "type" : "custom",
+    "x" : 3.0,
+    "y" : 4.4,
+    "width" : 3.8000000000000003,
+    "height" : 1.55,
+    "color" : "#10B981",
+    "notes" : ""
+  } ],
+  "furniture" : [ {
+    "id" : "bed-01",
+    "label" : "Bed",
+    "type" : "bed",
+    "x" : 0.7271483898162843,
+    "y" : 1.32157301902771,
+    "width" : 2.2,
+    "height" : 1.2,
+    "rotation" : 0.0,
+    "occupancyTopic" : "indoor/furniture/bed-01/occupancy",
+    "occupancyState" : "unknown"
+  }, {
+    "id" : "sofa-01",
+    "label" : "Sofa",
+    "type" : "sofa",
+    "x" : 7.1087751388549805,
+    "y" : 1.3912248611450195,
+    "width" : 2.0,
+    "height" : 0.9,
+    "rotation" : 0.0,
+    "occupancyTopic" : "indoor/furniture/sofa-01/occupancy",
+    "occupancyState" : "unknown"
+  }, {
+    "id" : "toilet-01",
+    "label" : "Toilet",
+    "type" : "toilet",
+    "x" : 1.85,
+    "y" : 5.050000000000001,
+    "width" : 0.9,
+    "height" : 0.8,
+    "rotation" : 0.0,
+    "occupancyTopic" : "indoor/furniture/toilet-01/occupancy",
+    "occupancyState" : "unknown"
+  } ],
+  "anchors" : [ {
+    "id" : "anchor_01",
+    "x" : 0.0,
+    "y" : 6.0,
+    "z" : 1.0,
+    "txPower" : -65.47,
+    "pathLossExponent" : 2.0,
+    "rssiTopic" : "indoor/ble/anchor_01/rssi",
+    "enabled" : true
+  }, {
+    "id" : "anchor_02",
+    "x" : 0.0,
+    "y" : 0.0,
+    "z" : 1.0,
+    "txPower" : -66.95,
+    "pathLossExponent" : 2.0,
+    "rssiTopic" : "indoor/ble/anchor_02/rssi",
+    "enabled" : true
+  }, {
+    "id" : "anchor_03",
+    "x" : 11.0,
+    "y" : 0.0,
+    "z" : 1.0,
+    "txPower" : -68.04,
+    "pathLossExponent" : 2.0,
+    "rssiTopic" : "indoor/ble/anchor_03/rssi",
+    "enabled" : true
+  } ],
+  "positioning" : {
+    "targetTopic" : "indoor/location/target_01",
+    "strictInRoomOutput" : true,
+    "smoothingAlpha" : 0.18,
+    "maxReadingAgeSec" : 5.0
+  },
+  "updatedAt" : "2026-06-03T12:31:16.469201Z"
+}
