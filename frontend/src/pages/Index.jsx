@@ -456,7 +456,7 @@ const Index = () => {
               layout={activeIndoorLayout}
               onTitleClick={() => setShowRoomModal(true)}
             />
-            <ElderModelDashboardCard />
+            <ElderModelDashboardCard layout={activeIndoorLayout} position={indoorPosition} />
           </div>
         </div>
       </div>

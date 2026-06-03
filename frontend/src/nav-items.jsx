@@ -55,7 +55,7 @@ export const navItems = [
     roles: ["ADMIN", "RESIDENT_VIEWER"],
   },
   {
-    title: "3D Elder Model",
+    title: "3D Digital Twin",
     to: "/elder-model-3d",
     icon: <Cuboid className="h-4 w-4" />,
     page: <ElderModel3D />,
