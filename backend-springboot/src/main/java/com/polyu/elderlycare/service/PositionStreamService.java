@@ -17,6 +17,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Maintains indoor-position SSE subscriptions and latest position snapshots.
+ */
 @Service
 public class PositionStreamService {
 
@@ -29,6 +32,12 @@ public class PositionStreamService {
     private final AtomicLong eventSequence = new AtomicLong();
     private final AtomicReference<Map<String, Object>> latestPositionPayload = new AtomicReference<>();
 
+    /**
+     * Creates an SSE subscription for indoor position updates.
+     *
+     * @param user current authenticated user
+     * @return SSE emitter bound to the subscription
+     */
     public SseEmitter subscribe(AuthenticatedUser user) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         String subscriptionId = UUID.randomUUID().toString();
@@ -57,6 +66,11 @@ public class PositionStreamService {
         return emitter;
     }
 
+    /**
+     * Returns the latest indoor position payload.
+     *
+     * @return latest position payload, or an unavailable payload when no update exists
+     */
     public Map<String, Object> getLatestPosition() {
         Map<String, Object> latest = latestPositionPayload.get();
         if (latest == null) {
@@ -68,6 +82,11 @@ public class PositionStreamService {
         return latest;
     }
 
+    /**
+     * Publishes a new indoor position payload to all subscribers.
+     *
+     * @param payload raw or normalized position payload
+     */
     public void publishPositionUpdate(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) {
             return;

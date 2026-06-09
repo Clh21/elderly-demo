@@ -11,6 +11,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.springframework.stereotype.Service;
 
+/**
+ * Manages demo account authentication and in-memory session tokens.
+ */
 @Service
 public class AuthService {
 
@@ -24,6 +27,12 @@ public class AuthService {
                 .collect(java.util.stream.Collectors.toMap(AuthProperties.Account::getUsername, Function.identity()));
     }
 
+    /**
+     * Authenticates credentials and creates a new session token.
+     *
+     * @param request login credentials
+     * @return login response with token and user profile
+     */
     public LoginResponse login(LoginRequest request) {
         String username = trimToNull(request.username());
         String password = trimToNull(request.password());
@@ -40,19 +49,41 @@ public class AuthService {
         return new LoginResponse(token, toResponse(user));
     }
 
+    /**
+     * Authenticates a bearer token from the HTTP Authorization header.
+     *
+     * @param authorizationHeader Authorization header value
+     * @return authenticated user, or {@code null} when the token is missing or invalid
+     */
     public AuthenticatedUser authenticate(String authorizationHeader) {
         String token = extractBearerToken(authorizationHeader);
         return authenticateToken(token);
     }
 
+    /**
+     * Authenticates a raw token value.
+     *
+     * @param token session token
+     * @return authenticated user, or {@code null} when the token is missing, expired, or unknown
+     */
     public AuthenticatedUser authenticateToken(String token) {
         return resolveAuthenticatedUser(token);
     }
 
+    /**
+     * Converts the current thread-bound user into a response DTO.
+     *
+     * @return current user profile
+     */
     public AuthenticatedUserResponse getCurrentUserResponse() {
         return toResponse(AuthContext.requireCurrentUser());
     }
 
+    /**
+     * Removes the current session token from the in-memory session store.
+     *
+     * @param authorizationHeader Authorization header containing the bearer token
+     */
     public void logout(String authorizationHeader) {
         String token = extractBearerToken(authorizationHeader);
         if (token != null) {

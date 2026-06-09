@@ -5,7 +5,7 @@ import { formatIndoorTimestamp } from '../lib/indoorRooms';
 
 const RoomLocationCard = ({ currentPosition, history, layout, onTitleClick }) => {
   const [page, setPage] = useState(0);
-  const records = history || [];
+  const records = useMemo(() => (Array.isArray(history) ? history : []), [history]);
   const pageSize = 4;
   const totalPages = Math.max(1, Math.ceil(records.length / pageSize));
   const previewRecords = useMemo(

@@ -7,12 +7,23 @@ const parseJson = async (response, fallbackMessage) => {
   return response.json();
 };
 
-// Fetch real-time watch data
+/**
+ * Fetches the latest dashboard summary for a watch.
+ *
+ * @param {string} watchId watch id to query
+ * @returns {Promise<object>} watch summary payload
+ */
 export const fetchWatchData = async (watchId) => {
   const response = await apiFetch(`/watch/${watchId}`);
   return parseJson(response, 'Failed to fetch watch data');
 };
 
+/**
+ * Requests the backend to build or refresh the EDA baseline for a watch.
+ *
+ * @param {string} watchId watch id to process
+ * @returns {Promise<object>} baseline build result
+ */
 export const buildEdaBaseline = async (watchId) => {
   const response = await apiFetch(`/watch/${watchId}/eda-baseline/build`, {
     method: 'POST',
@@ -20,16 +31,38 @@ export const buildEdaBaseline = async (watchId) => {
   return parseJson(response, 'Failed to build EDA baseline');
 };
 
+/**
+ * Fetches paginated ECG history records for a watch.
+ *
+ * @param {string} watchId watch id to query
+ * @param {number} page one-based page number
+ * @param {number} pageSize number of records per page
+ * @returns {Promise<object>} paginated ECG history payload
+ */
 export const fetchEcgHistory = async (watchId, page = 1, pageSize = 10) => {
   const response = await apiFetch(`/watch/${watchId}/ecg-history?page=${page}&pageSize=${pageSize}`);
   return parseJson(response, 'Failed to fetch ECG history');
 };
 
+/**
+ * Fetches one ECG history record with waveform detail.
+ *
+ * @param {string} watchId watch id that owns the reading
+ * @param {number|string} readingId ECG reading id
+ * @returns {Promise<object>} ECG detail payload
+ */
 export const fetchEcgHistoryDetail = async (watchId, readingId) => {
   const response = await apiFetch(`/watch/${watchId}/ecg-history/${readingId}`);
   return parseJson(response, 'Failed to fetch ECG history detail');
 };
 
+/**
+ * Deletes one ECG history record.
+ *
+ * @param {string} watchId watch id that owns the reading
+ * @param {number|string} readingId ECG reading id
+ * @returns {Promise<object>} delete result payload
+ */
 export const deleteEcgHistoryRecord = async (watchId, readingId) => {
   const response = await apiFetch(`/watch/${watchId}/ecg-history/${readingId}`, {
     method: 'DELETE',
@@ -37,6 +70,14 @@ export const deleteEcgHistoryRecord = async (watchId, readingId) => {
   return parseJson(response, 'Failed to delete ECG history record');
 };
 
+/**
+ * Fetches detailed chart data for one metric and optional date.
+ *
+ * @param {string} watchId watch id to query
+ * @param {string} metric frontend metric key
+ * @param {string} [date] optional date in yyyy-MM-dd format
+ * @returns {Promise<object>} metric detail payload
+ */
 export const fetchMetricDetail = async (watchId, metric, date) => {
   const query = new URLSearchParams({ metric });
   if (date) {
@@ -46,30 +87,79 @@ export const fetchMetricDetail = async (watchId, metric, date) => {
   return parseJson(response, 'Failed to fetch metric detail');
 };
 
-// Fetch overview statistics
+/**
+ * Fetches administrator dashboard statistics.
+ *
+ * @returns {Promise<object>} overview statistics payload
+ */
 export const fetchOverviewStats = async () => {
   const response = await apiFetch('/stats');
   return parseJson(response, 'Failed to fetch stats');
 };
 
-// Fetch elderly residents list
+/**
+ * Fetches residents visible to the current user.
+ *
+ * @returns {Promise<Array<object>>} resident list
+ */
 export const fetchElderlyResidents = async () => {
   const response = await apiFetch('/residents');
   return parseJson(response, 'Failed to fetch residents');
 };
 
-// Fetch health data history for a resident
+/**
+ * Fetches daily health history for a resident.
+ *
+ * @param {number|string} residentId resident id
+ * @param {number} days number of days to include
+ * @returns {Promise<Array<object>>} daily health summaries
+ */
 export const fetchHealthData = async (residentId, days = 7) => {
   const response = await apiFetch(`/health/${residentId}?days=${days}`);
   return parseJson(response, 'Failed to fetch health data');
 };
 
-// Fetch alerts
+/**
+ * Fetches recent alerts visible to the current user.
+ *
+ * @returns {Promise<Array<object>>} alert list
+ */
 export const fetchAlerts = async () => {
   const response = await apiFetch('/alerts');
   return parseJson(response, 'Failed to fetch alerts');
 };
 
+/**
+ * Resolves all active alerts in the current access scope.
+ *
+ * @returns {Promise<object>} clear result payload
+ */
+export const clearAlerts = async () => {
+  const response = await apiFetch('/alerts/clear', {
+    method: 'POST',
+  });
+  return parseJson(response, 'Failed to clear alerts');
+};
+
+/**
+ * Resolves one alert by id.
+ *
+ * @param {number|string} alertId alert id
+ * @returns {Promise<object>} resolve result payload
+ */
+export const resolveAlert = async (alertId) => {
+  const response = await apiFetch(`/alerts/${alertId}/resolve`, {
+    method: 'POST',
+  });
+  return parseJson(response, 'Failed to resolve alert');
+};
+
+/**
+ * Fetches active alerts created after a known alert id.
+ *
+ * @param {number} after last alert id already seen by the client
+ * @returns {Promise<Array<object>>} newly-created active alerts
+ */
 export const fetchLatestAlerts = async (after = 0) => {
   const response = await apiFetch(`/alerts/latest?after=${after}`);
   return parseJson(response, 'Failed to fetch latest alerts');

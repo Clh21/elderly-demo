@@ -6,6 +6,11 @@ export const REQUEST_ID_HEADER = 'X-Request-Id';
 const HTTP_LOG_STORAGE_KEY = 'elderlycare-http-logs';
 const HTTP_LOG_MAX_LENGTH = 4000;
 
+/**
+ * Reads the persisted browser session from localStorage.
+ *
+ * @returns {object|null} stored session, or null when unavailable
+ */
 export const readStoredSession = () => {
   if (typeof window === 'undefined') {
     return null;
@@ -22,6 +27,11 @@ export const readStoredSession = () => {
   }
 };
 
+/**
+ * Persists the browser session used by authenticated API calls.
+ *
+ * @param {object} session session payload containing token and user details
+ */
 export const writeStoredSession = (session) => {
   if (typeof window === 'undefined') {
     return;
@@ -29,6 +39,9 @@ export const writeStoredSession = (session) => {
   window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 };
 
+/**
+ * Removes the persisted browser session.
+ */
 export const clearStoredSession = () => {
   if (typeof window === 'undefined') {
     return;
@@ -114,6 +127,15 @@ const parseLoggedResponseBody = async (response) => {
   }
 };
 
+/**
+ * Wraps fetch with request ids, optional debug logging, and unauthorized dispatching.
+ *
+ * @param {string} url absolute request URL
+ * @param {RequestInit} options fetch options
+ * @param {object} config request behavior options
+ * @param {boolean} config.dispatchUnauthorized whether 401 responses should notify the auth context
+ * @returns {Promise<Response>} raw fetch response
+ */
 export const httpFetch = async (url, options = {}, { dispatchUnauthorized = true } = {}) => {
   const headers = new Headers(options.headers || {});
 
@@ -167,6 +189,13 @@ export const httpFetch = async (url, options = {}, { dispatchUnauthorized = true
   }
 };
 
+/**
+ * Calls an API path with the current Authorization header when a session exists.
+ *
+ * @param {string} path API path beginning with slash
+ * @param {RequestInit} options fetch options
+ * @returns {Promise<Response>} raw fetch response
+ */
 export const apiFetch = async (path, options = {}) => {
   const session = readStoredSession();
   const headers = new Headers(options.headers || {});
@@ -181,6 +210,13 @@ export const apiFetch = async (path, options = {}) => {
   });
 };
 
+/**
+ * Extracts a backend error message from a failed response.
+ *
+ * @param {Response} response failed HTTP response
+ * @param {string} fallbackMessage message used when the response body cannot be parsed
+ * @returns {Promise<string>} resolved error message
+ */
 export const extractErrorMessage = async (response, fallbackMessage) => {
   try {
     const payload = await response.json();

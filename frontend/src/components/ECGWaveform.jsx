@@ -20,22 +20,27 @@ const ECGWaveform = ({ chartData, durationSeconds, displayRangeMv, height = 340 
   const dragStateRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
-  const normalizedData = Array.isArray(chartData)
-    ? chartData
-        .map((point, index) => ({
-          seconds: Number.isFinite(point?.seconds) ? Number(point.seconds) : index,
-          mv: Number.isFinite(point?.value) ? Number(point.value) : null,
-        }))
-        .filter((point) => point.mv != null)
-    : [];
+  // Normalize incoming waveform data once so chart sizing and axis ranges stay stable.
+  const normalizedData = useMemo(() => (
+    Array.isArray(chartData)
+      ? chartData
+          .map((point, index) => ({
+            seconds: Number.isFinite(point?.seconds) ? Number(point.seconds) : index,
+            mv: Number.isFinite(point?.value) ? Number(point.value) : null,
+          }))
+          .filter((point) => point.mv != null)
+      : []
+  ), [chartData]);
 
-  const waveformRange = Array.isArray(displayRangeMv)
-    && displayRangeMv.length === 2
-    && Number.isFinite(displayRangeMv[0])
-    && Number.isFinite(displayRangeMv[1])
-    && displayRangeMv[0] < displayRangeMv[1]
-      ? displayRangeMv
-      : buildRobustRange(normalizedData.map((point) => point.mv));
+  const waveformRange = useMemo(() => (
+    Array.isArray(displayRangeMv)
+      && displayRangeMv.length === 2
+      && Number.isFinite(displayRangeMv[0])
+      && Number.isFinite(displayRangeMv[1])
+      && displayRangeMv[0] < displayRangeMv[1]
+        ? displayRangeMv
+        : buildRobustRange(normalizedData.map((point) => point.mv))
+  ), [displayRangeMv, normalizedData]);
 
   const chartWidth = useMemo(() => {
     const duration = durationSeconds != null && durationSeconds > 0
@@ -78,7 +83,7 @@ const ECGWaveform = ({ chartData, durationSeconds, displayRangeMv, height = 340 
     <div className="rounded-xl border border-rose-200 bg-white p-3">
       <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
         <span>Drag horizontally to inspect the full ECG strip.</span>
-        <span>25 mm/s equivalent layout • mV scale</span>
+        <span>25 mm/s equivalent layout - mV scale</span>
       </div>
       <div
         ref={scrollRef}

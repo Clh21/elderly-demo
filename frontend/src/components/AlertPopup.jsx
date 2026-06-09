@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, AlertTriangle, XCircle, Heart, Thermometer, Activity, Watch } from 'lucide-react';
+import { X, XCircle, Heart, Thermometer, Activity, Watch } from 'lucide-react';
 
 const typeConfig = {
   heart_rate: {
@@ -59,7 +59,7 @@ const severityConfig = {
   },
 };
 
-const AlertPopup = ({ alerts, onClose }) => {
+const AlertPopup = ({ alerts, onClose, onClearAll, isClearing = false }) => {
   if (!alerts || alerts.length === 0) return null;
 
   // Show the most recent / most severe alert
@@ -129,8 +129,19 @@ const AlertPopup = ({ alerts, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-6 pb-5">
+        <div className="grid gap-2 px-6 pb-5">
+          {onClearAll ? (
+            <button
+              type="button"
+              onClick={onClearAll}
+              disabled={isClearing}
+              className="w-full rounded-lg border border-red-200 bg-red-50 py-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isClearing ? 'Clearing alerts...' : 'Clear all active alerts'}
+            </button>
+          ) : null}
           <button
+            type="button"
             onClick={onClose}
             className="w-full bg-gray-900 hover:bg-gray-700 text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
           >

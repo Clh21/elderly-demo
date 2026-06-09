@@ -8,6 +8,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Exposes server-sent events for indoor position updates.
+ */
 @RestController
 @RequestMapping("/api/stream")
 public class PositionStreamController {
@@ -23,6 +26,11 @@ public class PositionStreamController {
         this.positionStreamService = positionStreamService;
     }
 
+    /**
+     * Subscribes the current user to indoor position update events.
+     *
+     * @return SSE emitter for position updates
+     */
     @GetMapping(value = "/position-updates", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribeToPositionUpdates() {
         return positionStreamService.subscribe(accessScopeService.getCurrentUser());

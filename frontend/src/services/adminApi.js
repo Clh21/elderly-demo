@@ -8,10 +8,18 @@ const parseJson = async (response, fallbackMessage) => {
   return response.json();
 };
 
-// Fetch all residents with latest health data
+/**
+ * Fetches all resident cards for the admin dashboard.
+ */
 export const fetchAllResidentsData = fetchElderlyResidents;
 
-// Fetch historical data for a specific resident and metric
+/**
+ * Fetches historical metric values for one resident.
+ *
+ * @param {number|string} residentId resident id
+ * @param {string} metric metric key to extract from health history rows
+ * @returns {Promise<Array<{timestamp: string, value: *}>>} chart-ready metric points
+ */
 export const fetchHistoricalData = async (residentId, metric) => {
   const response = await apiFetch(`/health/${residentId}?days=7`);
   const data = await parseJson(response, 'Failed to fetch historical data');
@@ -21,8 +29,12 @@ export const fetchHistoricalData = async (residentId, metric) => {
   }));
 };
 
-// Fetch real-time alerts across all residents
+/**
+ * Fetches alerts visible to the admin dashboard.
+ */
 export const fetchAllAlerts = fetchAlerts;
 
-// Fetch system overview statistics
+/**
+ * Fetches system overview statistics for admin widgets.
+ */
 export const fetchSystemStats = fetchOverviewStats;

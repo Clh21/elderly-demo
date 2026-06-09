@@ -8,6 +8,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Exposes server-sent events for watch reading updates.
+ */
 @RestController
 @RequestMapping("/api/stream")
 public class WatchUpdateStreamController {
@@ -23,6 +26,11 @@ public class WatchUpdateStreamController {
         this.watchUpdateStreamService = watchUpdateStreamService;
     }
 
+    /**
+     * Subscribes the current user to watch update events.
+     *
+     * @return SSE emitter for watch updates
+     */
     @GetMapping(value = "/watch-updates", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribeToWatchUpdates() {
         return watchUpdateStreamService.subscribe(accessScopeService.getCurrentUser());

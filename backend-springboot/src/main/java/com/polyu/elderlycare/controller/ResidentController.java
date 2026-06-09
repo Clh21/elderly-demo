@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Exposes resident directory and health history endpoints.
+ */
 @RestController
 @RequestMapping("/api")
 public class ResidentController {
@@ -20,11 +23,23 @@ public class ResidentController {
         this.residentService = residentService;
     }
 
+    /**
+     * Lists residents visible to the current user.
+     *
+     * @return resident summaries
+     */
     @GetMapping("/residents")
     public List<ResidentResponse> getResidents() {
         return residentService.getActiveResidents();
     }
 
+    /**
+     * Reads health history for one resident.
+     *
+     * @param residentId resident id
+     * @param days number of days to include
+     * @return daily health summaries
+     */
     @GetMapping("/health/{residentId}")
     public List<HealthSummaryResponse> getHealthHistory(
             @PathVariable Integer residentId,

@@ -1,3 +1,6 @@
+/**
+ * Demo indoor layout used when the backend has not provided an active layout.
+ */
 export const DEFAULT_INDOOR_LAYOUT = {
   id: 'active-room',
   name: 'Demo Care Room',
@@ -131,6 +134,14 @@ export const ROOM_ZONES = DEFAULT_INDOOR_LAYOUT.zones.map((zone) => ({
   },
 }));
 
+/**
+ * Restricts a numeric value to the provided inclusive range.
+ *
+ * @param {number} value value to clamp
+ * @param {number} min lower bound
+ * @param {number} max upper bound
+ * @returns {number} clamped value
+ */
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const toNumberOrNull = (value) => {
@@ -143,6 +154,12 @@ const toNumberWithFallback = (value, fallback) => {
   return Number.isFinite(numeric) ? numeric : fallback;
 };
 
+/**
+ * Normalizes backend or local indoor layout data into safe rendering bounds.
+ *
+ * @param {object} layout raw layout payload
+ * @returns {object} normalized layout with zones, furniture, anchors, and positioning settings
+ */
 export const normalizeIndoorLayout = (layout) => {
   const source = layout || DEFAULT_INDOOR_LAYOUT;
   const widthM = clamp(toNumberWithFallback(source.widthM, DEFAULT_INDOOR_LAYOUT.widthM), 1, 100);
@@ -222,13 +239,38 @@ const buildAxisTicks = (maxValue) => {
 export const ROOM_AXIS_TICKS_X = buildAxisTicks(ROOM_WIDTH_M);
 export const ROOM_AXIS_TICKS_Y = buildAxisTicks(ROOM_HEIGHT_M);
 
+/**
+ * Builds x-axis tick marks for the provided layout width.
+ *
+ * @param {object} layout layout payload
+ * @returns {number[]} x-axis tick values
+ */
 export const getRoomAxisTicksX = (layout) => buildAxisTicks(normalizeIndoorLayout(layout).widthM);
+
+/**
+ * Builds y-axis tick marks for the provided layout height.
+ *
+ * @param {object} layout layout payload
+ * @returns {number[]} y-axis tick values
+ */
 export const getRoomAxisTicksY = (layout) => buildAxisTicks(normalizeIndoorLayout(layout).heightM);
 
+/**
+ * Formats axis tick labels without unnecessary decimal places.
+ *
+ * @param {number} value numeric tick value
+ * @returns {string} display label
+ */
 export const formatAxisTick = (value) => (
   Number.isInteger(value) ? `${value}` : `${Number(value.toFixed(2))}`
 );
 
+/**
+ * Resolves rectangular bounds for a zone.
+ *
+ * @param {object} zone zone payload with bounds or x/y/width/height
+ * @returns {{xMin: number, xMax: number, yMin: number, yMax: number}} zone bounds
+ */
 export const getZoneBounds = (zone) => {
   if (zone.bounds) {
     return zone.bounds;
@@ -257,6 +299,14 @@ const getZoneCenter = (zone) => {
   };
 };
 
+/**
+ * Resolves the room or nearest room for a layout coordinate.
+ *
+ * @param {number} x x coordinate in meters
+ * @param {number} y y coordinate in meters
+ * @param {object} layout layout payload
+ * @returns {object} matching or nearest zone
+ */
 export const resolveRoomFromCoordinate = (x, y, layout = DEFAULT_INDOOR_LAYOUT) => {
   const normalizedLayout = normalizeIndoorLayout(layout);
   const boundedX = clamp(x, 0, normalizedLayout.widthM);
@@ -292,6 +342,13 @@ export const resolveRoomFromCoordinate = (x, y, layout = DEFAULT_INDOOR_LAYOUT) 
   return nearestZone;
 };
 
+/**
+ * Converts backend positioning payloads into a UI-friendly room position object.
+ *
+ * @param {object} payload raw backend positioning payload
+ * @param {object} layout layout payload used to resolve room labels
+ * @returns {object|null} normalized position, or null when the payload is unavailable
+ */
 export const normalizeIndoorPositionPayload = (payload, layout = DEFAULT_INDOOR_LAYOUT) => {
   if (!payload || payload.available === false) {
     return null;
@@ -327,6 +384,12 @@ export const normalizeIndoorPositionPayload = (payload, layout = DEFAULT_INDOOR_
   };
 };
 
+/**
+ * Formats indoor positioning timestamps for display.
+ *
+ * @param {string|number|Date} value timestamp value
+ * @returns {string} formatted timestamp or Unknown
+ */
 export const formatIndoorTimestamp = (value) => {
   if (!value) {
     return 'Unknown';

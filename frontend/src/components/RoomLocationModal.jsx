@@ -4,7 +4,7 @@ import IndoorMapCanvas from './IndoorMapCanvas';
 import { formatIndoorTimestamp, normalizeIndoorLayout } from '../lib/indoorRooms';
 
 const RoomLocationModal = ({ isOpen, onClose, currentPosition, history, layout }) => {
-  const records = history || [];
+  const records = useMemo(() => (Array.isArray(history) ? history : []), [history]);
   const normalizedLayout = useMemo(() => normalizeIndoorLayout(layout), [layout]);
 
   const roomStats = useMemo(() => {

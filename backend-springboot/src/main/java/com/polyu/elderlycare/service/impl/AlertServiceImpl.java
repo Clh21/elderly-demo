@@ -7,6 +7,7 @@ import com.polyu.elderlycare.entity.Alert;
 import com.polyu.elderlycare.entity.AlertStatus;
 import com.polyu.elderlycare.entity.Resident;
 import com.polyu.elderlycare.exception.ResourceNotFoundException;
+import com.polyu.elderlycare.mapper.AlertResponseMapper;
 import com.polyu.elderlycare.repository.AlertRepository;
 import com.polyu.elderlycare.repository.ResidentRepository;
 import com.polyu.elderlycare.service.AlertService;
@@ -37,12 +38,12 @@ public class AlertServiceImpl implements AlertService {
     public List<AlertResponse> getAlerts() {
         if (!accessScopeService.isAdmin()) {
             return alertRepository.findTop100ByResidentIdOrderByCreatedAtDesc(accessScopeService.requireResidentId()).stream()
-                    .map(this::toResponse)
+                    .map(AlertResponseMapper::toResponse)
                     .toList();
         }
 
         return alertRepository.findTop100ByOrderByCreatedAtDesc().stream()
-                .map(this::toResponse)
+                .map(AlertResponseMapper::toResponse)
                 .toList();
     }
 
@@ -57,12 +58,12 @@ public class AlertServiceImpl implements AlertService {
                             effectiveAfterId,
                             AlertStatus.ACTIVE
                     ).stream()
-                    .map(this::toResponse)
+                    .map(AlertResponseMapper::toResponse)
                     .toList();
         }
 
         return alertRepository.findByIdGreaterThanAndStatusOrderByCreatedAtAsc(effectiveAfterId, AlertStatus.ACTIVE).stream()
-                .map(this::toResponse)
+                .map(AlertResponseMapper::toResponse)
                 .toList();
     }
 
@@ -95,16 +96,19 @@ public class AlertServiceImpl implements AlertService {
         alertRepository.save(alert);
     }
 
-    private AlertResponse toResponse(Alert alert) {
-        return new AlertResponse(
-                alert.getId(),
-                alert.getResident().getId(),
-                alert.getResident().getName(),
-                alert.getType().getValue(),
-                alert.getSeverity().getValue(),
-                alert.getMessage(),
-                alert.getStatus().getValue(),
-                alert.getCreatedAt()
-        );
+    @Override
+    @Transactional
+    public int clearActiveAlertsForCurrentScope() {
+        LocalDateTime resolvedAt = LocalDateTime.now();
+        if (!accessScopeService.isAdmin()) {
+            return alertRepository.resolveAllActiveByResidentId(
+                    accessScopeService.requireResidentId(),
+                    AlertStatus.ACTIVE,
+                    AlertStatus.RESOLVED,
+                    resolvedAt
+            );
+        }
+
+        return alertRepository.resolveAllActive(AlertStatus.ACTIVE, AlertStatus.RESOLVED, resolvedAt);
     }
 }

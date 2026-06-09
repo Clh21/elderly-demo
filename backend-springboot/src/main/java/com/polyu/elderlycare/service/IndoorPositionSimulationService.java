@@ -11,6 +11,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+/**
+ * Generates demo indoor-position payloads when the positioning simulator is enabled.
+ */
 @Service
 public class IndoorPositionSimulationService {
 
@@ -34,6 +37,9 @@ public class IndoorPositionSimulationService {
         this.enabled = enabled;
     }
 
+    /**
+     * Publishes one simulated indoor position frame on the configured schedule.
+     */
     @Scheduled(fixedDelayString = "${app.positioning.simulator.interval-ms:2000}")
     public void publishSimulatedPosition() {
         if (!enabled) {
@@ -96,6 +102,11 @@ public class IndoorPositionSimulationService {
         positionStreamService.publishPositionUpdate(payload);
     }
 
+    /**
+     * Returns the current simulator state and latest simulated coordinate.
+     *
+     * @return simulator status payload
+     */
     public IndoorSimulatorStatusResponse getStatus() {
         return new IndoorSimulatorStatusResponse(
                 enabled,
@@ -106,6 +117,12 @@ public class IndoorPositionSimulationService {
         );
     }
 
+    /**
+     * Enables or disables simulated indoor position publishing.
+     *
+     * @param enabled whether the simulator should publish positions
+     * @return updated simulator status
+     */
     public IndoorSimulatorStatusResponse setEnabled(boolean enabled) {
         this.enabled = enabled;
         this.updatedAt = Instant.now().toString();

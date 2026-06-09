@@ -14,6 +14,11 @@ const parseEventPayload = (rawData) => {
   }
 };
 
+/**
+ * Fetches the latest indoor position snapshot.
+ *
+ * @returns {Promise<object>} latest indoor position payload
+ */
 export const fetchLatestIndoorPosition = async () => {
   const response = await apiFetch('/position/latest');
   if (!response.ok) {
@@ -22,6 +27,15 @@ export const fetchLatestIndoorPosition = async () => {
   return response.json();
 };
 
+/**
+ * Opens an SSE stream for indoor position updates.
+ *
+ * @param {string} token session token used as access_token query parameter
+ * @param {object} callbacks stream callbacks
+ * @param {(payload: object) => void} callbacks.onUpdate called for each position update
+ * @param {() => void} callbacks.onError called when the stream reports an error
+ * @returns {() => void} cleanup function that closes the stream
+ */
 export const openIndoorPositionStream = (token, { onUpdate, onError } = {}) => {
   if (typeof window === 'undefined' || typeof window.EventSource === 'undefined' || !token) {
     return () => {};

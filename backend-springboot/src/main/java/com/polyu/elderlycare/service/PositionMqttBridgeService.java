@@ -19,6 +19,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+/**
+ * Bridges indoor-position MQTT messages into the backend SSE stream.
+ */
 @Service
 public class PositionMqttBridgeService {
 
@@ -60,6 +63,9 @@ public class PositionMqttBridgeService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Connects to the MQTT broker and subscribes to the indoor positioning topic.
+     */
     @PostConstruct
     public void start() {
         if (!enabled) {
@@ -90,6 +96,9 @@ public class PositionMqttBridgeService {
         }
     }
 
+    /**
+     * Disconnects the MQTT client during application shutdown.
+     */
     @PreDestroy
     public void stop() {
         if (mqttClient == null) {

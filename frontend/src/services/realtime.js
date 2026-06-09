@@ -14,6 +14,15 @@ const parseEventPayload = (rawData) => {
   }
 };
 
+/**
+ * Opens an SSE stream for watch reading updates.
+ *
+ * @param {string} token session token used as access_token query parameter
+ * @param {object} callbacks stream callbacks
+ * @param {(payload: object) => void} callbacks.onUpdate called for each watch update
+ * @param {() => void} callbacks.onError called when the stream reports an error
+ * @returns {() => void} cleanup function that closes the stream
+ */
 export const openWatchUpdatesStream = (token, { onUpdate, onError } = {}) => {
   if (typeof window === 'undefined' || typeof window.EventSource === 'undefined' || !token) {
     return () => {};

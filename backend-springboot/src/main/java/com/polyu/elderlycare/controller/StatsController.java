@@ -6,6 +6,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Exposes aggregate statistics for the admin dashboard.
+ */
 @RestController
 @RequestMapping("/api")
 public class StatsController {
@@ -16,6 +19,11 @@ public class StatsController {
         this.statsService = statsService;
     }
 
+    /**
+     * Returns the latest system statistics.
+     *
+     * @return dashboard statistics
+     */
     @GetMapping("/stats")
     public StatsResponse getStats() {
         return statsService.getStats();

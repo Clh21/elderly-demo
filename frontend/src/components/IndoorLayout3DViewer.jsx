@@ -312,6 +312,13 @@ const FurnitureModelPlaceholder = ({ item, style, failed = false }) => {
 const LoadedFurnitureModel = ({ modelUrl, item, style }) => {
   const [normalizedModel, setNormalizedModel] = useState(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const itemWidth = item.width;
+  const itemHeight = item.height;
+  const itemType = item.type;
+  const targetHeight = useMemo(
+    () => getFurnitureModelTargetHeight({ type: itemType }, style),
+    [itemType, style]
+  );
 
   useEffect(() => {
     if (!modelUrl) {
@@ -322,7 +329,6 @@ const LoadedFurnitureModel = ({ modelUrl, item, style }) => {
 
     let disposed = false;
     const loader = new GLTFLoader();
-    const targetHeight = getFurnitureModelTargetHeight(item, style);
 
     setNormalizedModel(null);
     setLoadFailed(false);
@@ -331,7 +337,7 @@ const LoadedFurnitureModel = ({ modelUrl, item, style }) => {
       modelUrl,
       (gltf) => {
         if (!disposed) {
-          setNormalizedModel(normalizeSceneToBox(gltf.scene, item.width, targetHeight, item.height));
+          setNormalizedModel(normalizeSceneToBox(gltf.scene, itemWidth, targetHeight, itemHeight));
           setLoadFailed(false);
         }
       },
@@ -347,7 +353,7 @@ const LoadedFurnitureModel = ({ modelUrl, item, style }) => {
     return () => {
       disposed = true;
     };
-  }, [modelUrl, item.width, item.height, item.type, style.height]);
+  }, [modelUrl, itemWidth, itemHeight, targetHeight]);
 
   const renderObject = useMemo(() => (normalizedModel ? normalizedModel.clone(true) : null), [normalizedModel]);
 

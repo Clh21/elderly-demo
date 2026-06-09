@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Clock, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Clock, CheckCircle, XCircle, Filter, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { fetchAlerts } from '../services/api';
+import { clearAlerts, fetchAlerts, resolveAlert } from '../services/api';
 
 const Alerts = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const canManageAlerts = user?.role === 'ADMIN';
@@ -16,11 +17,31 @@ const Alerts = () => {
     refetchInterval: 10000, // Refresh every 10 seconds
   });
 
+  const clearAlertsMutation = useMutation({
+    mutationFn: clearAlerts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['allAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['overviewStats'] });
+    },
+  });
+
+  const resolveAlertMutation = useMutation({
+    mutationFn: resolveAlert,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['allAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['overviewStats'] });
+    },
+  });
+
   const filteredAlerts = alerts?.filter(alert => {
     const matchesSeverity = filterSeverity === 'all' || alert.severity === filterSeverity;
     const matchesStatus = filterStatus === 'all' || alert.status === filterStatus;
     return matchesSeverity && matchesStatus;
   }) || [];
+
+  const activeAlertCount = alerts?.filter(alert => alert.status === 'active').length || 0;
 
   const getSeverityIcon = (severity) => {
     switch (severity) {
@@ -51,7 +72,6 @@ const Alerts = () => {
     const styles = {
       active: 'bg-red-100 text-red-800',
       resolved: 'bg-green-100 text-green-800',
-      acknowledged: 'bg-blue-100 text-blue-800'
     };
     
     return (
@@ -76,11 +96,6 @@ const Alerts = () => {
     return `${diffInDays}d ago`;
   };
 
-  const handleResolveAlert = (alertId) => {
-    // In real app, call API to resolve alert
-    console.log('Resolving alert:', alertId);
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
@@ -103,10 +118,33 @@ const Alerts = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Alert Management</h1>
-          <p className="text-gray-600">
-            {canManageAlerts ? 'Monitor and manage health alerts and notifications' : 'Review alerts for your assigned resident'}
-          </p>
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Alert Management</h1>
+              <p className="text-gray-600">
+                {canManageAlerts ? 'Monitor and manage health alerts and notifications' : 'Review alerts for your assigned resident'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => clearAlertsMutation.mutate()}
+              disabled={!activeAlertCount || clearAlertsMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {clearAlertsMutation.isPending ? 'Clearing...' : 'Clear active alerts'}
+            </button>
+          </div>
+          {clearAlertsMutation.isError ? (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {clearAlertsMutation.error?.message || 'Failed to clear alerts'}
+            </div>
+          ) : null}
+          {resolveAlertMutation.isError ? (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {resolveAlertMutation.error?.message || 'Failed to resolve alert'}
+            </div>
+          ) : null}
         </div>
 
         {/* Filters */}
@@ -133,7 +171,6 @@ const Alerts = () => {
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
-                <option value="acknowledged">Acknowledged</option>
                 <option value="resolved">Resolved</option>
               </select>
             </div>
@@ -198,13 +235,12 @@ const Alerts = () => {
                 {canManageAlerts && alert.status === 'active' && (
                   <div className="flex gap-2 ml-4">
                     <button
-                      onClick={() => handleResolveAlert(alert.id)}
+                      type="button"
+                      onClick={() => resolveAlertMutation.mutate(alert.id)}
+                      disabled={resolveAlertMutation.isPending}
                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
                     >
-                      Resolve
-                    </button>
-                    <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
-                      Acknowledge
+                      {resolveAlertMutation.isPending ? 'Resolving...' : 'Resolve'}
                     </button>
                   </div>
                 )}

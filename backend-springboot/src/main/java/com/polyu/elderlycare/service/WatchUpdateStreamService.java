@@ -16,6 +16,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Maintains watch-update SSE subscriptions for dashboard cache invalidation.
+ */
 @Service
 public class WatchUpdateStreamService {
 
@@ -27,6 +30,12 @@ public class WatchUpdateStreamService {
     private final ConcurrentMap<String, StreamSubscription> subscriptions = new ConcurrentHashMap<>();
     private final AtomicLong eventSequence = new AtomicLong();
 
+    /**
+     * Creates an SSE subscription for watch update events.
+     *
+     * @param user current authenticated user
+     * @return SSE emitter bound to the subscription
+     */
     public SseEmitter subscribe(AuthenticatedUser user) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         String subscriptionId = UUID.randomUUID().toString();
@@ -53,6 +62,15 @@ public class WatchUpdateStreamService {
         return emitter;
     }
 
+    /**
+     * Publishes a watch update event to matching subscribers.
+     *
+     * @param watchId watch id that changed
+     * @param residentId resident id associated with the watch
+     * @param sensorType sensor type that produced the update
+     * @param eventType event type reported by the watch
+     * @param sourceTimestamp source timestamp from the watch payload
+     */
     public void publishWatchUpdate(
             String watchId,
             Integer residentId,

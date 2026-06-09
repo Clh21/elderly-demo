@@ -17,6 +17,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+/**
+ * Stores, sanitizes, and persists the active indoor layout used by positioning features.
+ */
 @Service
 public class IndoorLayoutService {
 
@@ -34,6 +37,9 @@ public class IndoorLayoutService {
         this.objectMapper = objectMapper.copy().enable(SerializationFeature.INDENT_OUTPUT);
     }
 
+    /**
+     * Loads the persisted layout at startup, falling back to the demo layout when unavailable.
+     */
     @PostConstruct
     public void load() {
         Path path = Path.of(storageFile);
@@ -50,6 +56,11 @@ public class IndoorLayoutService {
         activeLayout.set(defaultLayout());
     }
 
+    /**
+     * Returns the active indoor layout.
+     *
+     * @return active layout, or the demo layout if none has been loaded
+     */
     public IndoorLayoutResponse getActiveLayout() {
         IndoorLayoutResponse layout = activeLayout.get();
         if (layout == null) {
@@ -59,6 +70,12 @@ public class IndoorLayoutService {
         return layout;
     }
 
+    /**
+     * Sanitizes and persists the active indoor layout.
+     *
+     * @param request layout payload from the editor
+     * @return sanitized layout
+     */
     public synchronized IndoorLayoutResponse saveActiveLayout(IndoorLayoutResponse request) {
         IndoorLayoutResponse sanitized = sanitize(request);
         activeLayout.set(sanitized);
@@ -66,6 +83,11 @@ public class IndoorLayoutService {
         return sanitized;
     }
 
+    /**
+     * Resets the active layout to the built-in demo layout.
+     *
+     * @return reset layout
+     */
     public synchronized IndoorLayoutResponse resetActiveLayout() {
         IndoorLayoutResponse layout = defaultLayout();
         activeLayout.set(layout);
