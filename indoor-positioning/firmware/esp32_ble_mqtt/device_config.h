@@ -25,10 +25,10 @@ static const char* MQTT_SERVER   = "192.168.137.1";
 static const int MQTT_PORT = 1883;
 static const char* MQTT_USER = "";      // 无认证留空
 static const char* MQTT_PASS = "";
-static const char* MQTT_CLIENT = "esp32_beacon_03";  // 每个锚点必须唯一
+static const char* MQTT_CLIENT = "esp32_beacon_01";  // 每个锚点必须唯一
 
 // ----- 锚点与目标设备 -----
-static const char* BEACON_ID = "anchor_03";          // anchor_01 / anchor_02 / anchor_03
+static const char* BEACON_ID = "anchor_01";          // anchor_01 / anchor_02 / anchor_03
 static const char* TARGET_ID = "real-watch-001";
 static const uint8_t TARGET_IBEACON_UUID[16] = {
     0x8F, 0x0A, 0x5A, 0x8C, 0x6C, 0x3A, 0x4C, 0x4F,
@@ -38,13 +38,19 @@ static const uint16_t TARGET_IBEACON_MAJOR = 1;
 static const uint16_t TARGET_IBEACON_MINOR = 1;
 
 // ----- NTP 时间同步（用于 packet_slot 对齐） -----
-// 热点网络下优先用本地 broker 电脑的 IP（默认 192.168.137.1）。
-// 若该电脑没有 NTP 服务，请启用 USE_LOCAL_TIME_FALLBACK。
-static const char* NTP_SERVER = "192.168.137.1";
+// 当前电脑热点共享校园网，可上外网，优先使用公共 NTP 服务器。
+// 备选列表包含国内 NTP 和本地网关，提高同步成功率。
+static const char* NTP_SERVERS[] = {
+    "pool.ntp.org",
+    "cn.pool.ntp.org",
+    "time.windows.com",
+    "192.168.137.1"  // 本地 fallback（如果 Windows 装了 NTP 服务）
+};
+static const int NTP_SERVER_COUNT = sizeof(NTP_SERVERS) / sizeof(NTP_SERVERS[0]);
 static const long NTP_GMT_OFFSET_SEC = 8 * 3600;
 static const int NTP_DAYLIGHT_OFFSET_SEC = 0;
 
-// 当 NTP 服务器不可达时，是否使用本地 millis() 作为时间基准。
+// 当所有 NTP 服务器都不可达时，是否使用本地 millis() 作为时间基准。
 // true = 无外网也能工作；packet_slot 基于本地时间，Python 端会自动对齐各锚点偏移。
 // false = 必须成功同步外网 NTP，否则不会发送 RSSI 数据。
 static const bool USE_LOCAL_TIME_FALLBACK = true;
