@@ -14,6 +14,18 @@ html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;}
 .alert-warning{background:rgba(246,173,85,0.12);border-left:4px solid #f6ad55;padding:12px 16px;border-radius:8px;margin-bottom:8px;}
 .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;}
 .badge-critical{background:#742a2a;color:#fc8181;} .badge-warning{background:#744210;color:#f6ad55;}
+/* AI 专属气泡样式 */
+.ai-bubble {
+    margin-top: 10px; 
+    background: rgba(99, 179, 237, 0.1); 
+    border: 1px solid rgba(99, 179, 237, 0.3); 
+    border-left: 4px solid #63b3ed; 
+    padding: 10px 12px; 
+    border-radius: 6px; 
+    font-size: 13px; 
+    color: #e2e8f0;
+}
+.ai-bubble strong { color: #90cdf4; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,13 +66,34 @@ else:
         sc  = "alert-critical" if a["severity"] == "critical" else "alert-warning"
         bc  = "badge-critical"  if a["severity"] == "critical" else "badge-warning"
         lbl = "CRITICAL" if a["severity"] == "critical" else "WARNING"
+        
+        # ==========================================
+        # 【新增逻辑】分离基础信息与 AI 深度评估
+        # ==========================================
+        base_msg = a['message']
+        ai_html = ""
+        
+        if "💡【AI 深度评估】:" in a['message']:
+            parts = a['message'].split("💡【AI 深度评估】:")
+            base_msg = parts[0].strip()
+            ai_analysis = parts[1].strip()
+            # 组装专属的 AI 气泡 HTML
+            ai_html = f"""
+            <div class="ai-bubble">
+                <strong>🤖 AI 守护助手复核：</strong> {ai_analysis}
+            </div>
+            """
+            
+        # 渲染卡片内容
         st.markdown(f"""
         <div class="{sc}">
             <span class="badge {bc}">{lbl}</span>&nbsp;
             <b>{a['elderly_name']}</b>&nbsp;
             <span style="color:#8892b0;font-size:13px">{a['alert_type']} · {a['created_at']}</span><br/>
-            <span style="color:#e2e8f0;margin-top:4px;display:block">{a['message']}</span>
+            <span style="color:#e2e8f0;margin-top:6px;display:block">{base_msg}</span>
+            {ai_html}
         </div>""", unsafe_allow_html=True)
+        
         with st.expander(f"Handle Alert #{a['id']} — {a['elderly_name']}"):
             with st.form(f"handle_{a['id']}"):
                 handler = st.text_input("Handler", value="Admin")
@@ -88,4 +121,8 @@ else:
     df_h.columns = ["ID", "Resident", "Type", "Severity",
                     "Message", "Handler", "Notes", "Alert Time", "Handled Time"]
     df_h["Severity"] = df_h["Severity"].map({"critical": "Critical", "warning": "Warning"})
+    
+    # 格式化表格中的消息，将 AI 标识符替换为更易读的文本
+    df_h["Message"] = df_h["Message"].apply(lambda x: x.replace("💡【AI 深度评估】:", "\n🤖 AI分析："))
+    
     st.dataframe(df_h, use_container_width=True)

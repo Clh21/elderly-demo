@@ -520,6 +520,8 @@ class IndoorPositioningServer:
 
     def apply_stationary_hold(self, x: float, y: float) -> Tuple[float, float, bool]:
         if not USE_STATIONARY_HOLD:
+            # 发布到初筛 Topic，让 AI 去接管
+            self.client.publish("indoor/alert/preliminary", json.dumps(preliminary_alert), qos=1)
             self.output_position = (x, y)
             return x, y, False
 
