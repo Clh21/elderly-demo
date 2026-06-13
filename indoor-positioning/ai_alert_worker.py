@@ -50,7 +50,7 @@ def on_message(client, userdata, msg):
 请必须严格返回一个合法的 JSON 对象。字段如下：
 - "is_true_alert" (boolean): 如果认为有真实危险(如摔倒、晕厥、心率异常)返回 true，如果是日常活动(如正在做家务、信号轻微波动)返回 false。
 - "reasoning" (string): 简短说明你的推理过程（50字以内的中文）。
-- "suggested_severity" (string): 重新评估危险等级（仅限 LOW, MEDIUM, HIGH, CRITICAL 四选一）。"""
+- "suggested_severity" (string): 重新评估危险等级。如果是需要立刻处理的致命危急情况请返回 "CRITICAL"，如果是需要注意但暂无生命危险的情况请返回 "WARNING"（仅限 WARNING, CRITICAL 二选一）。"""
 
         user_prompt = f"【当前触发事件】：{original_msg}\n【报警类型】：{alert_type}"
         
@@ -75,8 +75,7 @@ def on_message(client, userdata, msg):
             
             # 将 AI 的分析结果融合进原有数据包
             payload['ai_analysis'] = ai_result.get('reasoning')
-            payload['severity'] = ai_result.get('suggested_severity', payload.get('severity', 'HIGH'))
-            
+            payload['severity'] = ai_result.get('suggested_severity', payload.get('severity', 'CRITICAL'))            
             # 重新打包成 JSON 推送到确认队列
             client.publish(TOPIC_CONFIRMED, json.dumps(payload), qos=1)
             print(f"[*] 📤 警报已放行并推送至 {TOPIC_CONFIRMED}")
