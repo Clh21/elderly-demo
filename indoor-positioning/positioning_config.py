@@ -15,18 +15,18 @@ MQTT_PRESSURE_TOPIC = "indoor/pressure/+/state"
 PATH_LOSS_EXPONENT = 2.0
 
 # Coordinate system for current deployment:
-# - x axis: along the long side from anchor_02 to anchor_03 (length = 11.0 m)
-# - y axis: perpendicular to x axis toward anchor_01 direction (height = 5.0 m)
-# - Origin is placed at anchor_02 for easier measurement
-# - All anchors at 1.0 m height (2D model currently uses x/y only)
-# - tx_power should be calibrated at 1m for each anchor (default is conservative)
+# - Room size: 7.5 m (long) x 4.0 m (wide)
+# - x axis: along the long side from anchor_02 to anchor_03 (length = 7.5 m)
+# - y axis: perpendicular to x axis toward anchor_01 direction (width = 4.0 m)
+# - Origin is placed at anchor_02 (front-left corner when looking into the room)
+# - All anchors are placed on chairs at 0.75 m height (2D model currently uses x/y only)
+# - tx_power values below are from a previous deployment; recalibrate each anchor
+#   at 1 m line-of-sight for best accuracy in this new room.
 ANCHORS = {
-    "anchor_01": {"x": 0.0, "y": 5.0, "tx_power": -65.47},
+    "anchor_01": {"x": 0.0, "y": 4.0, "tx_power": -65.47},
     "anchor_02": {"x": 0.0, "y": 0.0, "tx_power": -66.95},
-    "anchor_03": {"x": 11.0, "y": 0.0, "tx_power": -68.04},
-    # anchor_04: 新增的第四锚点，用于提高覆盖和冗余。
-    # 请先实测它的坐标再填入，默认 (11.0, 5.0) 只是把房间补成矩形。
-    "anchor_04": {"x": 11.0, "y": 5.0, "tx_power": -67.00},
+    "anchor_03": {"x": 7.5, "y": 0.0, "tx_power": -68.04},
+    "anchor_04": {"x": 7.5, "y": 4.0, "tx_power": -67.00},
 }
 
 # Furniture definitions for pressure-sensor fusion.
@@ -42,25 +42,27 @@ ANCHORS = {
 # different active layout (backend-springboot/data/indoor-layout-active.json),
 # make sure the furniture centers are kept in sync.
 FURNITURE = {
+    # NOTE: these are placeholder positions for a 7.5 x 4 m room.
+    # Adjust them to match the actual furniture layout before deploying.
     "sofa": {
-        "x": 8.1,
-        "y": 1.5,
+        "x": 5.0,
+        "y": 1.0,
         "room": "living_room",
         "label": "Sofa",
         "threshold_adc": 3000,
         "calibration_weight_kg": 50.0,
     },
     "bed": {
-        "x": 1.7,
-        "y": 1.1,
+        "x": 1.0,
+        "y": 1.0,
         "room": "bedroom",
         "label": "Bed",
         "threshold_adc": 3000,
         "calibration_weight_kg": 50.0,
     },
     "toilet": {
-        "x": 1.45,
-        "y": 4.15,
+        "x": 1.0,
+        "y": 3.0,
         "room": "toilet",
         "label": "Toilet",
         "threshold_adc": 3000,

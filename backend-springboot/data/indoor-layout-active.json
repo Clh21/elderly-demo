@@ -1,16 +1,16 @@
 {
   "id" : "active-room",
   "name" : "Demo Care Room",
-  "widthM" : 11.0,
-  "heightM" : 6.0,
+  "widthM" : 7.5,
+  "heightM" : 4.0,
   "zones" : [ {
     "id" : "bedroom",
     "label" : "Bedroom",
     "type" : "bedroom",
     "x" : 0.0,
     "y" : 0.0,
-    "width" : 6.800000000000001,
-    "height" : 4.4,
+    "width" : 2.5,
+    "height" : 2.5,
     "color" : "#6366F1",
     "notes" : "Main sleeping and resting area"
   }, {
@@ -18,38 +18,28 @@
     "label" : "Toilet",
     "type" : "toilet",
     "x" : 0.0,
-    "y" : 4.4,
-    "width" : 3.0,
-    "height" : 1.6,
+    "y" : 2.5,
+    "width" : 2.5,
+    "height" : 1.5,
     "color" : "#0EA5E9",
     "notes" : "Toilet and hygiene area"
   }, {
     "id" : "living_room",
     "label" : "Living Room",
     "type" : "living_room",
-    "x" : 6.8,
+    "x" : 2.5,
     "y" : 0.0,
-    "width" : 4.2,
-    "height" : 6.0,
+    "width" : 5.0,
+    "height" : 4.0,
     "color" : "#F59E0B",
     "notes" : "Living and activity area"
-  }, {
-    "id" : "zone-mpy0zrsx-8f8b",
-    "label" : "Kitchen",
-    "type" : "custom",
-    "x" : 3.0,
-    "y" : 4.4,
-    "width" : 3.8000000000000003,
-    "height" : 1.55,
-    "color" : "#10B981",
-    "notes" : ""
   } ],
   "furniture" : [ {
     "id" : "bed-01",
     "label" : "Bed",
     "type" : "bed",
-    "x" : 0.6,
-    "y" : 0.5,
+    "x" : 1.0,
+    "y" : 1.0,
     "width" : 2.2,
     "height" : 1.2,
     "rotation" : 0.0,
@@ -59,8 +49,8 @@
     "id" : "sofa-01",
     "label" : "Sofa",
     "type" : "sofa",
-    "x" : 7.1,
-    "y" : 1.05,
+    "x" : 5.0,
+    "y" : 1.0,
     "width" : 2.0,
     "height" : 0.9,
     "rotation" : 0.0,
@@ -71,7 +61,7 @@
     "label" : "Toilet",
     "type" : "toilet",
     "x" : 1.0,
-    "y" : 3.75,
+    "y" : 3.25,
     "width" : 0.9,
     "height" : 0.8,
     "rotation" : 0.0,
@@ -81,8 +71,8 @@
   "anchors" : [ {
     "id" : "anchor_01",
     "x" : 0.0,
-    "y" : 6.0,
-    "z" : 1.0,
+    "y" : 4.0,
+    "z" : 0.75,
     "txPower" : -65.47,
     "pathLossExponent" : 2.0,
     "rssiTopic" : "indoor/ble/anchor_01/rssi",
@@ -91,19 +81,28 @@
     "id" : "anchor_02",
     "x" : 0.0,
     "y" : 0.0,
-    "z" : 1.0,
+    "z" : 0.75,
     "txPower" : -66.95,
     "pathLossExponent" : 2.0,
     "rssiTopic" : "indoor/ble/anchor_02/rssi",
     "enabled" : true
   }, {
     "id" : "anchor_03",
-    "x" : 11.0,
+    "x" : 7.5,
     "y" : 0.0,
-    "z" : 1.0,
+    "z" : 0.75,
     "txPower" : -68.04,
     "pathLossExponent" : 2.0,
     "rssiTopic" : "indoor/ble/anchor_03/rssi",
+    "enabled" : true
+  }, {
+    "id" : "anchor_04",
+    "x" : 7.5,
+    "y" : 4.0,
+    "z" : 0.75,
+    "txPower" : -67.00,
+    "pathLossExponent" : 2.0,
+    "rssiTopic" : "indoor/ble/anchor_04/rssi",
     "enabled" : true
   } ],
   "positioning" : {
@@ -112,5 +111,5 @@
     "smoothingAlpha" : 0.18,
     "maxReadingAgeSec" : 5.0
   },
-  "updatedAt" : "2026-06-03T12:31:16.469201Z"
+  "updatedAt" : "2026-06-13T12:00:00.000000Z"
 }
