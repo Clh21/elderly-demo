@@ -90,7 +90,7 @@ USE_FILTERED_RSSI = True
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
-BEACON_ADV_INTERVAL_MS = 250
+BEACON_ADV_INTERVAL_MS = 100
 MIN_SYNC_FRAMES_PER_UPDATE = 1
 
 # When anchors report time_source="local" (no internet NTP), relax the timestamp

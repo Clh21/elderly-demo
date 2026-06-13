@@ -46,7 +46,7 @@ sudo systemctl start mosquitto
    static const char* MQTT_SERVER   = "192.168.x.x";  // 运行 broker 的电脑 IP
    static const char* MQTT_CLIENT   = "esp32_beacon_01"; // 每块板子不同
    static const char* BEACON_ID     = "anchor_01";       // 每块板子不同
-   static const char* TARGET_MAC    = "xx:xx:xx:xx:xx:xx";
+   static const char* TARGET_ID     = "real-watch-001";
    ```
 
 4. 查找电脑 IP：
@@ -65,7 +65,7 @@ sudo systemctl start mosquitto
    [WiFi] IP 地址: 192.168.1.xxx
    [TIME] synced, epoch_ms=...
    [MQTT] 正在连接 192.168.1.100:1883 ... 已连接!
-   [MQTT->] slot=... indoor/ble/anchor_01/rssi : {"anchor":"anchor_01","raw":-65,"filtered":-62.3,"ts":12345,"rx_epoch_ms":...,"packet_slot":...,"adv_interval_ms":250}
+   [MQTT->] slot=... indoor/ble/anchor_01/rssi : {"anchor":"anchor_01","target":"real-watch-001","raw":-65,"filtered":-62.3,"ts":12345,"rx_epoch_ms":...,"packet_slot":...,"adv_interval_ms":100}
    ```
 
 ### 第3步：验证数据链路
@@ -97,7 +97,7 @@ ESP32 #3: device_config.h -> BEACON_ID = "anchor_03", MQTT_CLIENT = "esp32_beaco
 indoor/
 ├── ble/
 │   ├── anchor_01/
-│   │   ├── rssi      # {"anchor":"anchor_01", "target":"xx:xx:...", "raw":-65, "filtered":-62.3, "ts":12345, "rx_epoch_ms":..., "packet_slot":..., "adv_interval_ms":250}
+│   │   ├── rssi      # {"anchor":"anchor_01", "target":"real-watch-001", "raw":-65, "filtered":-62.3, "ts":12345, "rx_epoch_ms":..., "packet_slot":..., "adv_interval_ms":100}
 │   │   └── status    # {"online":true, "uptime":3600, "wifi_rssi":-45}
 │   ├── anchor_02/
 │   │   ├── rssi
@@ -140,7 +140,7 @@ indoor/location/target_01
 
 **Q: BLE 信标丢失 (LOST)**
 - 信标距离太远或有遮挡
-- 检查 TARGET_MAC 是否正确
+- 检查手表 UUID、Major、Minor 是否与 `device_config.h` 一致
 - 尝试增大 SCAN_TIME（如改为2-3秒）
 
 **Q: 定位偏差很大 / 点位跑到墙外**

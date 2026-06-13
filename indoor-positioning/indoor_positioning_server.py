@@ -6,13 +6,13 @@ indoor/ble/{anchor_id}/rssi
 Expected payload example:
 {
   "anchor": "anchor_01",
-  "target": "20:a7:16:60:f9:b9",
+  "target": "real-watch-001",
   "raw": -65,
   "filtered": -62.3,
     "ts": 123456,
     "rx_epoch_ms": 1712490000123,
     "packet_slot": 6849960000,
-    "adv_interval_ms": 250
+    "adv_interval_ms": 100
 }
 """
 

@@ -17,7 +17,7 @@
  *     "ts": 123456,
  *     "rx_epoch_ms": 1712490000123,
  *     "packet_slot": 6849960000,
- *     "adv_interval_ms": 250
+ *     "adv_interval_ms": 100
  *   }
  *
  * 依赖库（在 Arduino Library Manager 中安装）：
@@ -64,13 +64,13 @@ float kalman_k = 0.0;       // 卡尔曼增益（自动计算）
 // ============ 扫描与运行参数 ============
 // =====================================================
 const int SCAN_TIME          = 1;       // BLE 扫描时间（秒）
-const int SCAN_INTERVAL_MS   = 50;      // 扫描间隔（毫秒）
+const int SCAN_INTERVAL_MS   = 10;      // 扫描间隔（毫秒）
 const unsigned long WIFI_RETRY_MS  = 5000;  // WiFi 重连间隔
 const unsigned long MQTT_RETRY_MS  = 5000;  // MQTT 重连间隔
 const unsigned long HEARTBEAT_MS   = 30000; // 心跳包间隔（30秒）
 
-// 每 250ms 为一包 beacon 周期（老师要求：按同一发包周期对齐）
-const uint32_t BEACON_ADV_INTERVAL_MS = 250;
+// 每 100ms 为一包 beacon 周期（与手表高频广播保持一致）
+const uint32_t BEACON_ADV_INTERVAL_MS = 100;
 const uint8_t  MAX_SLOT_SAMPLES = 16;
 
 // =====================================================
