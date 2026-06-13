@@ -203,7 +203,22 @@ void connectWiFi() {
     delay(1000);
     WiFi.mode(WIFI_STA);
     delay(500);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    if (USE_ENTERPRISE_WIFI) {
+        // WPA2-Enterprise (802.1X) 认证
+        // Arduino-ESP32 2.x/3.x 通用 API
+        Serial.printf("[WiFi] 使用 WPA2-Enterprise 认证，用户名=%s\n", WIFI_EAP_USERNAME);
+        WiFi.begin(
+            WIFI_SSID,
+            WPA2_AUTH_PEAP,
+            WIFI_EAP_ANONYMOUS_IDENTITY,
+            WIFI_EAP_USERNAME,
+            WIFI_EAP_PASSWORD
+        );
+    } else {
+        // 普通家用 WiFi (WPA2-Personal)
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -229,27 +244,27 @@ bool syncClock() {
     configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo, 4000)) {
-        Serial.println("[TIME] NTP sync failed (timeout)");
-        return false;
+    if (getLocalTime(&timeinfo, 4000)) {
+        struct timeval nowTv;
+        if (gettimeofday(&nowTv, nullptr) == 0 && nowTv.tv_sec >= 100000) {
+            uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
+            epochBaseMs = nowMs - (uint64_t)millis();
+            timeSynced = true;
+            Serial.printf("[TIME] synced via NTP, epoch_ms=%llu\n", getEpochMsNow());
+            return true;
+        }
     }
 
-    struct timeval nowTv;
-    if (gettimeofday(&nowTv, nullptr) != 0) {
-        Serial.println("[TIME] NTP sync failed (gettimeofday)");
-        return false;
+    if (USE_LOCAL_TIME_FALLBACK) {
+        // 无外网时使用本地 millis()。Python 端看到 time_source=local 会放宽同步要求。
+        epochBaseMs = 0;
+        timeSynced = true;
+        Serial.println("[TIME] NTP unavailable, using local millis() fallback");
+        return true;
     }
 
-    if (nowTv.tv_sec < 100000) {
-        Serial.println("[TIME] NTP sync failed (invalid epoch)");
-        return false;
-    }
-
-    uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
-    epochBaseMs = nowMs - (uint64_t)millis();
-    timeSynced = true;
-    Serial.printf("[TIME] synced, epoch_ms=%llu\n", getEpochMsNow());
-    return true;
+    Serial.println("[TIME] NTP sync failed");
+    return false;
 }
 
 // =====================================================
@@ -304,6 +319,7 @@ void publishRSSI(int rawRSSI, float filteredRSSI, uint64_t rxEpochMs, uint32_t p
     doc["rx_epoch_ms"] = rxEpochMs;
     doc["packet_slot"] = packetSlot;
     doc["adv_interval_ms"] = BEACON_ADV_INTERVAL_MS;
+    doc["time_source"] = (epochBaseMs == 0) ? "local" : "ntp";
 
     char payload[256];
     serializeJson(doc, payload, sizeof(payload));

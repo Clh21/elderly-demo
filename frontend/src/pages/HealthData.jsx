@@ -197,7 +197,7 @@ const HealthData = () => {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="h-5 w-5 text-purple-500" />
-                <h3 className="text-lg font-semibold text-gray-900">EDA Arousal</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Stress Level (EDA)</h3>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">

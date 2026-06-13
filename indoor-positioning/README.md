@@ -109,10 +109,17 @@ indoor/
 │   ├── bedroom/event
 │   ├── bathroom/event
 │   └── kitchen/event
-└── pressure/         # (后续扩展)
-    ├── bed/state
-    ├── sofa/state
-    └── chair/state
+├── pressure/         # 压力传感器（已接入）
+│   ├── bed/state     # {"location":"bed", "occupied":true, "raw_adc":3000, "weight_kg":50.0, "ts":"..."}
+│   ├── sofa/state    # {"location":"sofa", "occupied":true, "raw_adc":3000, "weight_kg":50.0, "ts":"..."}
+│   └── toilet/state  # {"location":"toilet", "occupied":true, "raw_adc":3000, "weight_kg":50.0, "ts":"..."}
+```
+
+定位结果：
+
+```text
+indoor/location/target_01
+# {"x":8.1, "y":1.5, "semanticLocation":"Sofa", "source":"pressure", "confidence":1.0, ...}
 ```
 
 ## 常见问题
@@ -158,10 +165,37 @@ indoor/ble/+/rssi
 ```
 
 当前默认工作模式：
-- 每 30 秒输出一次定位结果（不是连续追踪）
+
+- 每 **0.3 秒**输出一次定位结果（连续追踪）
 - 每次输出仅使用“同一 packet_slot 的三锚点样本”作为有效帧
-- 在过去 30 秒窗口内，对这些有效帧的定位结果取中位数
-- 适合中期报告中的阶段性位置确认场景
+- 对解算结果做 **IQR 异常值过滤**、**自适应平滑**与聚合，降低 RSSI 抖动
+- 已接入压力传感器融合：当压力传感器报告 `occupied=true` 时，输出坐标平滑过渡到对应家具中心，并带上 `semanticLocation`（如 Sofa / Bed / Toilet）
+- 新增 **静止保持（Stationary Hold）**：人静止时自动锁定坐标，消除视觉抖动
+- 新增 **运动状态检测**：输出 `activity_state`（`stationary` / `moving`）和 `stationary_hold` 字段
+- 适合实时房间级 + 家具级定位演示
+
+`indoor/location/target_01` 现在包含更多状态字段：
+
+```json
+{
+  "x": 8.100,
+  "y": 1.500,
+  "semanticLocation": "Sofa",
+  "source": "fusion",
+  "activity_state": "stationary",
+  "stationary_hold": false,
+  "confidence": 0.85,
+  "solver": "fusion(trilateration)",
+  ...
+}
+```
+
+字段说明：
+
+- `source`: `ble` / `fusion` / `pressure` —— 分别代表纯 BLE、压力-BLE 软融合、纯压力
+- `activity_state`: `stationary` / `moving` / `unknown`
+- `stationary_hold`: 是否处于静止锁定状态
+- `solver`: 解算器名称；软融合时显示 `fusion(原解算器)`
 
 ### 老师要求的数据一致性模式（已实现）
 
@@ -227,9 +261,11 @@ mosquitto_sub -h localhost -t "indoor/location/target_01" -v
 
 功能：
 - 绘制锚点位置（anchor）
+- 绘制家具 footprint（sofa / bed / toilet）
 - 绘制人物实时位置（红点）
-- 显示定位状态卡片（OK / LOW CONFIDENCE / SIGNAL STALE / WAITING）
-- 默认不显示轨迹，仅展示当前快照位置（每 30 秒更新一次）
+- 压力触发时高亮对应家具并显示 `Status: PRESSURE LOCK`
+- 显示定位状态卡片（OK / LOW CONFIDENCE / SIGNAL STALE / WAITING / PRESSURE LOCK）
+- 默认不显示轨迹，仅展示当前快照位置（每秒更新）
 
 运行方式（建议开两个终端）：
 
@@ -268,11 +304,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\stop_positioning_stack.ps1
 pip install -r requirements.txt
 ```
 
+可选：一键启动时同时打开压力传感器模拟器（没有硬件时测试家具融合）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start_positioning_stack.ps1 -StartPressureSimulator
+```
+
 说明：
 - 可视化脚本订阅 `indoor/location/target_01`
 - 坐标范围和锚点位置来自 `positioning_config.py`
-- 状态显示：`OK / LOW CONFIDENCE / SIGNAL STALE`
-- 信息面板仅显示：最终坐标 `x,y` 与时间戳 `ts`
+- 家具 footprint 也来自 `positioning_config.py` 中的 `FURNITURE` 字典
+- 状态显示：`OK / LOW CONFIDENCE / SIGNAL STALE / PRESSURE LOCK`
+- 信息面板显示：最终坐标 `x,y`、时间戳 `ts`、语义位置 `semanticLocation`、数据来源 `source`
 
 ### 让屏幕方向和站位一致
 

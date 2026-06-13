@@ -114,6 +114,29 @@ export const resolveResidentPose = (layoutInput, position) => {
     };
   }
 
+  // Prefer semanticLocation from sensor fusion (e.g., pressure mat)
+  if (position.semanticLocation) {
+    const matched = layout.furniture.find(
+      (item) => item.label === position.semanticLocation || item.id === position.semanticLocation
+    );
+    if (matched) {
+      if (matched.type === 'bed') {
+        return { pose: 'lying', label: 'Lying on bed', furniture: matched };
+      }
+      if (matched.type === 'sofa') {
+        return { pose: 'sitting', label: 'Sitting on sofa', furniture: matched };
+      }
+      if (matched.type === 'toilet') {
+        return { pose: 'toilet_sitting', label: 'Using toilet', furniture: matched };
+      }
+      if (matched.type === 'chair') {
+        return { pose: 'sitting', label: 'Sitting on chair', furniture: matched };
+      }
+      return { pose: 'standing', label: `Near ${matched.label}`, furniture: matched };
+    }
+  }
+
+  // Fallback to geometric bounds
   const matched = layout.furniture.find((item) => (
     position.x >= item.x
     && position.x <= item.x + item.width

@@ -23,6 +23,7 @@ import paho.mqtt.client as mqtt
 
 from positioning_config import (
     ANCHORS,
+    FURNITURE,
     MQTT_BROKER,
     MQTT_PASSWORD,
     MQTT_PORT,
@@ -103,6 +104,10 @@ class PositionVisualizer:
             confidence = float(payload.get("confidence", 0.0))
             solver = str(payload.get("solver", "unknown"))
             residual_rms_m = float(payload.get("residual_rms_m", 0.0))
+            semantic_location = payload.get("semanticLocation")
+            source = str(payload.get("source", "unknown"))
+            activity_state = str(payload.get("activity_state", "unknown"))
+            stationary_hold = bool(payload.get("stationary_hold", False))
         except (ValueError, KeyError, json.JSONDecodeError):
             return
 
@@ -118,6 +123,10 @@ class PositionVisualizer:
                 "confidence": confidence,
                 "solver": solver,
                 "residual_rms_m": residual_rms_m,
+                "semanticLocation": semantic_location,
+                "source": source,
+                "activity_state": activity_state,
+                "stationary_hold": stationary_hold,
             }
             self.last_message_at = time.time()
 
@@ -201,6 +210,38 @@ class PositionVisualizer:
             self.ax.scatter([ax], [ay], marker="^", s=180, c="#2563eb", edgecolors="white")
             self.ax.text(ax + 0.05, ay + 0.06, anchor_id, fontsize=10, color="#1e293b")
 
+        # Draw furniture footprints from positioning_config
+        self.furniture_patches: dict = {}
+        for fid, cfg in FURNITURE.items():
+            fx_model = float(cfg["x"])
+            fy_model = float(cfg["y"])
+            fx, fy = self.transform_point(fx_model, fy_model)
+            # Approximate footprint: 0.8m x 0.8m for visualization
+            fw = 0.8
+            fh = 0.8
+            rect = Rectangle(
+                (fx - fw / 2, fy - fh / 2),
+                fw,
+                fh,
+                fill=True,
+                facecolor="#e2e8f0",
+                edgecolor="#94a3b8",
+                linewidth=1.2,
+                linestyle="--",
+                alpha=0.6,
+                zorder=2,
+            )
+            self.ax.add_patch(rect)
+            self.furniture_patches[fid] = rect
+            self.ax.text(
+                fx,
+                fy + fh / 2 + 0.08,
+                cfg.get("label", fid),
+                fontsize=9,
+                color="#475569",
+                ha="center",
+            )
+
         self.person_scatter = self.ax.scatter([], [], s=260, c="#ef4444", edgecolors="white", zorder=5)
         self.uncertainty_circle = Circle(
             (0.0, 0.0),
@@ -264,14 +305,64 @@ class PositionVisualizer:
             self.uncertainty_circle.set_radius(radius)
             self.uncertainty_circle.set_visible(True)
 
+            # Highlight furniture when source is pressure
+            for fid, patch in self.furniture_patches.items():
+                furniture_label = FURNITURE.get(fid, {}).get("label")
+                if (
+                    latest.get("source") == "pressure"
+                    and latest.get("semanticLocation") == furniture_label
+                ):
+                    patch.set_facecolor("#fecaca")
+                    patch.set_edgecolor("#ef4444")
+                    patch.set_alpha(0.85)
+                    patch.set_linewidth(2.0)
+                else:
+                    patch.set_facecolor("#e2e8f0")
+                    patch.set_edgecolor("#94a3b8")
+                    patch.set_alpha(0.6)
+                    patch.set_linewidth(1.2)
+
+            sem = latest.get("semanticLocation")
+            sem_line = f"semantic={sem}\n" if sem else ""
+            src_line = f"source={latest.get('source', 'unknown')}\n"
+            act_line = f"activity={latest.get('activity_state', 'unknown')}\n"
+            hold_line = "hold=ON\n" if latest.get("stationary_hold") else ""
             self.info_text.set_text(
                 "Latest update\n"
                 f"position=({x_model:.3f}, {y_model:.3f}) m\n"
+                f"{sem_line}"
+                f"{src_line}"
+                f"{act_line}"
+                f"{hold_line}"
                 f"ts={ts}"
             )
 
             if is_fresh:
-                if confidence < 0.45:
+                if latest.get("stationary_hold"):
+                    self.status_text.set_text("Status: STATIONARY LOCK")
+                    self.status_text.set_color("#1e40af")
+                    self.status_text.set_bbox(
+                        {"facecolor": "#dbeafe", "alpha": 0.95, "edgecolor": "#93c5fd"}
+                    )
+                elif latest.get("activity_state") == "moving":
+                    self.status_text.set_text("Status: MOVING")
+                    self.status_text.set_color("#047857")
+                    self.status_text.set_bbox(
+                        {"facecolor": "#d1fae5", "alpha": 0.95, "edgecolor": "#6ee7b7"}
+                    )
+                elif latest.get("source") == "fusion":
+                    self.status_text.set_text("Status: FUSION")
+                    self.status_text.set_color("#7c3aed")
+                    self.status_text.set_bbox(
+                        {"facecolor": "#ede9fe", "alpha": 0.95, "edgecolor": "#c4b5fd"}
+                    )
+                elif latest.get("source") == "pressure":
+                    self.status_text.set_text("Status: PRESSURE LOCK")
+                    self.status_text.set_color("#991b1b")
+                    self.status_text.set_bbox(
+                        {"facecolor": "#fee2e2", "alpha": 0.95, "edgecolor": "#fecaca"}
+                    )
+                elif confidence < 0.45:
                     self.status_text.set_text("Status: LOW CONFIDENCE")
                     self.status_text.set_color("#92400e")
                     self.status_text.set_bbox(
@@ -310,7 +401,7 @@ class PositionVisualizer:
         self.animation = FuncAnimation(
             self.fig,
             self.update_plot,
-            interval=400,
+            interval=200,
             blit=False,
             cache_frame_data=False,
         )
