@@ -77,9 +77,8 @@ public class WatchPairingServiceImpl implements WatchPairingService {
         cleanupExpiredPairings();
         int watchPort = request.watchPort() == null ? DEFAULT_WATCH_PAIRING_PORT : request.watchPort();
         int serverPort = request.serverPort() == null ? 3100 : request.serverPort();
-        String watchHost = normalizeEndpointHost(request.watchIp());
-        String watchEndpoint = buildWatchConfigEndpoint(watchHost, watchPort);
-        String serverHost = normalizeEndpointHost(request.serverHost());
+        String watchEndpoint = "http://" + request.watchIp().trim() + ":" + watchPort + "/config";
+        String serverHost = request.serverHost().trim();
         String watchId = request.watchId().trim();
         String serverEndpoint = buildServerEndpoint(serverHost, serverPort);
         String pairingChallenge = UUID.randomUUID().toString();
@@ -113,7 +112,6 @@ public class WatchPairingServiceImpl implements WatchPairingService {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                     .build();
         } catch (IllegalArgumentException | IOException ex) {
-            pendingPairings.remove(pairingChallenge);
             throw new IllegalArgumentException("Invalid watch pairing request: " + ex.getMessage());
         }
 
@@ -121,17 +119,13 @@ public class WatchPairingServiceImpl implements WatchPairingService {
         try {
             watchResponse = httpClient.send(watchRequest, HttpResponse.BodyHandlers.ofString());
         } catch (IOException ex) {
-            pendingPairings.remove(pairingChallenge);
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
-                    "Could not reach watch at " + watchEndpoint +
-                            ". Keep the watch Settings/Pairing page open, confirm the watch IP and port, and make sure the backend computer and watch are on the same Wi-Fi. " +
-                            ex.getMessage(),
+                    "Could not reach watch at " + watchEndpoint + ": " + ex.getMessage(),
                     ex
             );
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            pendingPairings.remove(pairingChallenge);
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Watch pairing request was interrupted", ex);
         }
 
@@ -241,43 +235,6 @@ public class WatchPairingServiceImpl implements WatchPairingService {
 
     private String buildServerEndpoint(String serverHost, int serverPort) {
         return "http://" + serverHost + ":" + serverPort + "/api/samsung-watch";
-    }
-
-    private String buildWatchConfigEndpoint(String watchHost, int watchPort) {
-        return "http://" + watchHost + ":" + watchPort + "/config";
-    }
-
-    private String normalizeEndpointHost(String value) {
-        String host = trimToNull(value);
-        if (host == null) {
-            throw new IllegalArgumentException("Host is required");
-        }
-
-        int schemeIndex = host.indexOf("://");
-        if (schemeIndex >= 0) {
-            host = host.substring(schemeIndex + 3);
-        }
-
-        int slashIndex = host.indexOf('/');
-        if (slashIndex >= 0) {
-            host = host.substring(0, slashIndex);
-        }
-
-        int questionIndex = host.indexOf('?');
-        if (questionIndex >= 0) {
-            host = host.substring(0, questionIndex);
-        }
-
-        int firstColon = host.indexOf(':');
-        if (firstColon >= 0 && host.indexOf(':', firstColon + 1) < 0) {
-            host = host.substring(0, firstColon);
-        }
-
-        host = host.trim();
-        if (host.isBlank()) {
-            throw new IllegalArgumentException("Host is required");
-        }
-        return host;
     }
 
     private Map<String, Object> parseWatchResponse(String body) {

@@ -73,11 +73,11 @@ const WatchMetricsGrid = ({
 
   const edaReadingDetail = watchData.edaRaw != null
     ? `Raw: ${watchData.edaRaw} uS${watchData.edaLabel ? ` - Samsung label: ${watchData.edaLabel}` : ''}`
-    : (watchData.edaLabel ? `EDA pattern: ${watchData.edaLabel}` : 'Arousal state derived from electrodermal activity');
+    : (watchData.edaLabel ? `EDA pattern: ${watchData.edaLabel}` : 'Stress state derived from electrodermal activity');
 
   const edaBaselineSummary = watchData.edaBaselineBuilt
     ? `${watchData.edaBaselineStageLabel} - ${watchData.edaBaselineWindowCount || 0} windows - ${watchData.edaBaselineDayCount || 0} days - ${watchData.edaBaselineDaypartCount || 0} dayparts`
-    : 'Baseline not built yet. Current EDA arousal interpretation is using the default thresholds.';
+    : 'Baseline not built yet. Current EDA interpretation is using the default thresholds.';
 
   const builtBaselineAt = formatDateTime(watchData.edaBaselineBuiltAt);
   const edaBaselineStats = watchData.edaBaselineBuilt
@@ -139,7 +139,7 @@ const WatchMetricsGrid = ({
           : null}
       />
       <WatchDataCard
-        title="EDA Arousal"
+        title="EDA (Stress)"
         value={watchData.edaState || '--'}
         unit=""
         icon={<Activity className="h-6 w-6 text-purple-500" />}
@@ -150,7 +150,7 @@ const WatchMetricsGrid = ({
         chartTooltipFormatter={(chartValue, _dataKey, point) => {
           const label = point?.stateLabel || watchData.edaState || chartValue;
           const raw = point?.rawEda != null ? `${point.rawEda} uS` : '';
-          return [raw ? `${label} (${raw})` : label, 'EDA Arousal'];
+          return [raw ? `${label} (${raw})` : label, 'EDA Stress'];
         }}
         detailText={edaDetailText}
         footer={edaFooter}

@@ -1,6 +1,7 @@
 param(
     [switch]$SkipBroker,
-    [switch]$StartSubscriber
+    [switch]$StartSubscriber,
+    [switch]$StartPressureSimulator
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,7 +33,8 @@ function Get-ScriptProcess {
 function Start-ScriptIfNotRunning {
     param(
         [string]$ScriptName,
-        [string]$Label
+        [string]$Label,
+        [string]$ArgumentList = ""
     )
 
     $existing = Get-ScriptProcess -ScriptName $ScriptName
@@ -42,7 +44,8 @@ function Start-ScriptIfNotRunning {
         return
     }
 
-    Start-Process -FilePath $PythonExe -ArgumentList $ScriptName -WorkingDirectory $Root -WindowStyle Normal | Out-Null
+    $argString = if ($ArgumentList) { "$ScriptName $ArgumentList" } else { $ScriptName }
+    Start-Process -FilePath $PythonExe -ArgumentList $argString -WorkingDirectory $Root -WindowStyle Normal | Out-Null
     Write-Output "[START] $Label started in a separate window."
 }
 
@@ -71,6 +74,11 @@ Start-ScriptIfNotRunning -ScriptName "ai_alert_worker.py" -Label "AI Alert Worke
 if ($StartSubscriber) {
     Write-Output "[STEP] Starting MQTT test subscriber..."
     Start-ScriptIfNotRunning -ScriptName "mqtt_test_subscriber.py" -Label "MQTT subscriber"
+}
+
+if ($StartPressureSimulator) {
+    Write-Output "[STEP] Starting pressure sensor simulator..."
+    Start-ScriptIfNotRunning -ScriptName "test_pressure_publisher.py" -Label "Pressure simulator" -ArgumentList "--location sofa --toggle"
 }
 
 Write-Output "[DONE] Stack launch command completed."

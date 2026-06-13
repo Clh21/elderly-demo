@@ -3,7 +3,8 @@ $ErrorActionPreference = "Stop"
 $targets = @(
     "indoor_positioning_server.py",
     "indoor_position_visualizer.py",
-    "mqtt_test_subscriber.py"
+    "mqtt_test_subscriber.py",
+    "test_pressure_publisher.py"
 )
 
 $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |

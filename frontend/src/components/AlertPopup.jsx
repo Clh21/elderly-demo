@@ -21,7 +21,7 @@ const typeConfig = {
     color: 'text-purple-500',
     bg: 'bg-purple-50',
     border: 'border-purple-200',
-    label: 'EDA Arousal Alert',
+    label: 'Stress Level Alert',
   },
   data_gap: {
     icon: Watch,

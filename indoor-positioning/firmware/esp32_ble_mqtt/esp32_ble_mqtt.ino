@@ -17,7 +17,7 @@
  *     "ts": 123456,
  *     "rx_epoch_ms": 1712490000123,
  *     "packet_slot": 6849960000,
- *     "adv_interval_ms": 250
+ *     "adv_interval_ms": 100
  *   }
  *
  * 依赖库（在 Arduino Library Manager 中安装）：
@@ -64,13 +64,14 @@ float kalman_k = 0.0;       // 卡尔曼增益（自动计算）
 // ============ 扫描与运行参数 ============
 // =====================================================
 const int SCAN_TIME          = 1;       // BLE 扫描时间（秒）
-const int SCAN_INTERVAL_MS   = 50;      // 扫描间隔（毫秒）
+const int SCAN_INTERVAL_MS   = 20;      // 每轮扫描后的短暂 WiFi/MQTT 处理窗口
 const unsigned long WIFI_RETRY_MS  = 5000;  // WiFi 重连间隔
 const unsigned long MQTT_RETRY_MS  = 5000;  // MQTT 重连间隔
 const unsigned long HEARTBEAT_MS   = 30000; // 心跳包间隔（30秒）
+const unsigned long WATCH_LOST_TIMEOUT_MS = 7000; // 连续7秒无目标包才判定丢失
 
-// 每 250ms 为一包 beacon 周期（老师要求：按同一发包周期对齐）
-const uint32_t BEACON_ADV_INTERVAL_MS = 250;
+// 每 100ms 为一包 beacon 周期（与手表高频广播保持一致）
+const uint32_t BEACON_ADV_INTERVAL_MS = 100;
 const uint8_t  MAX_SLOT_SAMPLES = 16;
 
 // =====================================================
@@ -81,6 +82,8 @@ PubSubClient mqttClient(wifiClient);
 BLEScan* pBLEScan;
 
 unsigned long lastHeartbeat = 0;
+volatile unsigned long lastWatchSeenMs = 0;
+volatile bool watchEverSeen = false;
 
 uint64_t epochBaseMs = 0;
 bool timeSynced = false;
@@ -173,20 +176,68 @@ void sortSlotSamplesBySlot() {
 // =====================================================
 // ============ BLE 扫描回调 ============
 // =====================================================
+bool parseTargetIBeacon(
+    BLEAdvertisedDevice& device,
+    uint16_t& major,
+    uint16_t& minor,
+    int8_t& measuredPower
+) {
+    if (!device.haveManufacturerData()) {
+        return false;
+    }
+
+    String manufacturerData = device.getManufacturerData();
+    if (manufacturerData.length() < 25) {
+        return false;
+    }
+
+    const uint8_t* payload =
+        reinterpret_cast<const uint8_t*>(manufacturerData.c_str());
+
+    // Company ID 0x004C is little-endian, followed by iBeacon header 0x02 0x15.
+    if (payload[0] != 0x4C || payload[1] != 0x00 ||
+        payload[2] != 0x02 || payload[3] != 0x15) {
+        return false;
+    }
+
+    if (memcmp(payload + 4, TARGET_IBEACON_UUID, sizeof(TARGET_IBEACON_UUID)) != 0) {
+        return false;
+    }
+
+    major = (static_cast<uint16_t>(payload[20]) << 8) | payload[21];
+    minor = (static_cast<uint16_t>(payload[22]) << 8) | payload[23];
+    measuredPower = static_cast<int8_t>(payload[24]);
+
+    return major == TARGET_IBEACON_MAJOR && minor == TARGET_IBEACON_MINOR;
+}
+
 class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice device) {
-        String mac = device.getAddress().toString().c_str();
-        if (mac.equalsIgnoreCase(TARGET_MAC)) {
-            if (!timeSynced) return;
+        uint16_t major = 0;
+        uint16_t minor = 0;
+        int8_t measuredPower = 0;
+        if (!parseTargetIBeacon(device, major, minor, measuredPower)) return;
+        if (!timeSynced) return;
 
-            int raw = device.getRSSI();
-            float filtered = kalmanFilter((float)raw);
-            uint64_t epochMs = getEpochMsNow();
-            if (epochMs == 0) return;
+        int raw = device.getRSSI();
+        lastWatchSeenMs = millis();
+        watchEverSeen = true;
 
-            uint32_t slot = (uint32_t)(epochMs / (uint64_t)BEACON_ADV_INTERVAL_MS);
-            upsertSlotSample(slot, raw, filtered, epochMs);
-        }
+        float filtered = kalmanFilter((float)raw);
+        uint64_t epochMs = getEpochMsNow();
+        if (epochMs == 0) return;
+
+        uint32_t slot = (uint32_t)(epochMs / (uint64_t)BEACON_ADV_INTERVAL_MS);
+        upsertSlotSample(slot, raw, filtered, epochMs);
+
+        Serial.printf(
+            "[BLE] watch=%s major=%u minor=%u RSSI=%d dBm measuredPower=%d\n",
+            TARGET_ID,
+            major,
+            minor,
+            raw,
+            measuredPower
+        );
     }
 };
 
@@ -203,7 +254,22 @@ void connectWiFi() {
     delay(1000);
     WiFi.mode(WIFI_STA);
     delay(500);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    if (USE_ENTERPRISE_WIFI) {
+        // WPA2-Enterprise (802.1X) 认证
+        // Arduino-ESP32 2.x/3.x 通用 API
+        Serial.printf("[WiFi] 使用 WPA2-Enterprise 认证，用户名=%s\n", WIFI_EAP_USERNAME);
+        WiFi.begin(
+            WIFI_SSID,
+            WPA2_AUTH_PEAP,
+            WIFI_EAP_ANONYMOUS_IDENTITY,
+            WIFI_EAP_USERNAME,
+            WIFI_EAP_PASSWORD
+        );
+    } else {
+        // 普通家用 WiFi (WPA2-Personal)
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -229,27 +295,27 @@ bool syncClock() {
     configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo, 4000)) {
-        Serial.println("[TIME] NTP sync failed (timeout)");
-        return false;
+    if (getLocalTime(&timeinfo, 4000)) {
+        struct timeval nowTv;
+        if (gettimeofday(&nowTv, nullptr) == 0 && nowTv.tv_sec >= 100000) {
+            uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
+            epochBaseMs = nowMs - (uint64_t)millis();
+            timeSynced = true;
+            Serial.printf("[TIME] synced via NTP, epoch_ms=%llu\n", getEpochMsNow());
+            return true;
+        }
     }
 
-    struct timeval nowTv;
-    if (gettimeofday(&nowTv, nullptr) != 0) {
-        Serial.println("[TIME] NTP sync failed (gettimeofday)");
-        return false;
+    if (USE_LOCAL_TIME_FALLBACK) {
+        // 无外网时使用本地 millis()。Python 端看到 time_source=local 会放宽同步要求。
+        epochBaseMs = 0;
+        timeSynced = true;
+        Serial.println("[TIME] NTP unavailable, using local millis() fallback");
+        return true;
     }
 
-    if (nowTv.tv_sec < 100000) {
-        Serial.println("[TIME] NTP sync failed (invalid epoch)");
-        return false;
-    }
-
-    uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
-    epochBaseMs = nowMs - (uint64_t)millis();
-    timeSynced = true;
-    Serial.printf("[TIME] synced, epoch_ms=%llu\n", getEpochMsNow());
-    return true;
+    Serial.println("[TIME] NTP sync failed");
+    return false;
 }
 
 // =====================================================
@@ -297,13 +363,16 @@ void publishRSSI(int rawRSSI, float filteredRSSI, uint64_t rxEpochMs, uint32_t p
     // 使用 ArduinoJson 构建 JSON
     JsonDocument doc;
     doc["anchor"]   = BEACON_ID;
-    doc["target"]   = TARGET_MAC;
+    doc["target"]   = TARGET_ID;
+    doc["ibeacon_major"] = TARGET_IBEACON_MAJOR;
+    doc["ibeacon_minor"] = TARGET_IBEACON_MINOR;
     doc["raw"]      = rawRSSI;
     doc["filtered"] = round(filteredRSSI * 10.0) / 10.0;  // 保留1位小数
     doc["ts"]       = millis();
     doc["rx_epoch_ms"] = rxEpochMs;
     doc["packet_slot"] = packetSlot;
     doc["adv_interval_ms"] = BEACON_ADV_INTERVAL_MS;
+    doc["time_source"] = (epochBaseMs == 0) ? "local" : "ntp";
 
     char payload[256];
     serializeJson(doc, payload, sizeof(payload));
@@ -344,7 +413,12 @@ void setup() {
     Serial.println("============================================");
     Serial.println("  ESP32 BLE + MQTT 室内定位锚点");
     Serial.printf("  节点 ID: %s\n", BEACON_ID);
-    Serial.printf("  目标信标: %s\n", TARGET_MAC);
+    Serial.printf(
+        "  Target watch: %s (major=%u, minor=%u)\n",
+        TARGET_ID,
+        TARGET_IBEACON_MAJOR,
+        TARGET_IBEACON_MINOR
+    );
     Serial.println("============================================");
 
     // 构建 MQTT Topic
@@ -369,10 +443,14 @@ void setup() {
     // 初始化 BLE
     BLEDevice::init("ESP32_Anchor");
     pBLEScan = BLEDevice::getScan();
-    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks());
-    pBLEScan->setActiveScan(true);
-    pBLEScan->setInterval(100);
-    pBLEScan->setWindow(99);
+    // Receive every repeated advertisement from the watch.
+    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
+    // The watch broadcasts a non-scannable iBeacon packet.
+    pBLEScan->setActiveScan(false);
+    // interval=160*0.625=100ms，window=128*0.625=80ms。
+    // 80% BLE 扫描占空比兼顾目标包接收率与 WiFi/MQTT 上传时间。
+    pBLEScan->setInterval(160);
+    pBLEScan->setWindow(128);
 
     Serial.println("\n[系统] 初始化完成，开始扫描...\n");
 }
@@ -406,6 +484,14 @@ void loop() {
     clearSlotSamples();
     pBLEScan->start(SCAN_TIME, false);
 
+    // 非阻塞扫描需要等它跑完（约 SCAN_TIME 秒），期间喂 MQTT 保活。
+    // 如果立即检查 slotSampleCount，回调可能还没触发，会误判为信标丢失。
+    unsigned long scanStart = millis();
+    while (pBLEScan->isScanning() && millis() - scanStart < (unsigned long)(SCAN_TIME + 1) * 1000UL) {
+        mqttClient.loop();
+        delay(10);
+    }
+
     if (slotSampleCount > 0) {
         sortSlotSamplesBySlot();
         for (uint8_t i = 0; i < slotSampleCount; i++) {
@@ -418,7 +504,17 @@ void loop() {
             mqttClient.loop();
         }
     } else {
-        Serial.printf("[BLE] %lu - 信标丢失\n", millis());
+        const unsigned long nowMs = millis();
+        if (!watchEverSeen) {
+            Serial.println("[BLE] 尚未发现目标手表");
+        } else {
+            const unsigned long missingMs = nowMs - lastWatchSeenMs;
+            if (missingMs >= WATCH_LOST_TIMEOUT_MS) {
+                Serial.printf("[BLE] 手表信号已连续丢失 %lu ms\n", missingMs);
+            } else {
+                Serial.printf("[BLE] 本轮无样本，距上次接收 %lu ms\n", missingMs);
+            }
+        }
     }
 
     pBLEScan->clearResults();

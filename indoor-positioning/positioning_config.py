@@ -8,6 +8,7 @@ MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
 MQTT_RSSI_TOPIC = "indoor/ble/+/rssi"
 MQTT_POSITION_TOPIC = "indoor/location/target_01"
+MQTT_PRESSURE_TOPIC = "indoor/pressure/+/state"
 
 # RSSI to distance conversion (log-distance path loss model)
 # distance = 10 ^ ((tx_power - rssi) / (10 * n))
@@ -23,6 +24,48 @@ ANCHORS = {
     "anchor_01": {"x": 0.0, "y": 5.0, "tx_power": -65.47},
     "anchor_02": {"x": 0.0, "y": 0.0, "tx_power": -66.95},
     "anchor_03": {"x": 11.0, "y": 0.0, "tx_power": -68.04},
+    # anchor_04: 新增的第四锚点，用于提高覆盖和冗余。
+    # 请先实测它的坐标再填入，默认 (11.0, 5.0) 只是把房间补成矩形。
+    "anchor_04": {"x": 11.0, "y": 5.0, "tx_power": -67.00},
+}
+
+# Furniture definitions for pressure-sensor fusion.
+# Each entry maps a location id to its fixed coordinates and calibration metadata.
+# x, y are in meters (same coordinate system as ANCHORS).
+# room is the semantic room id for frontend mapping.
+# label is human-readable and is sent as semanticLocation to the frontend.
+# threshold_adc is the firmware threshold (documented here for reference only).
+# calibration_weight_kg is the reference weight used for calibration.
+#
+# NOTE: These coordinates match the default frontend layout in
+# frontend/src/lib/indoorRooms.js. If your Spring Boot backend serves a
+# different active layout (backend-springboot/data/indoor-layout-active.json),
+# make sure the furniture centers are kept in sync.
+FURNITURE = {
+    "sofa": {
+        "x": 8.1,
+        "y": 1.5,
+        "room": "living_room",
+        "label": "Sofa",
+        "threshold_adc": 3000,
+        "calibration_weight_kg": 50.0,
+    },
+    "bed": {
+        "x": 1.7,
+        "y": 1.1,
+        "room": "bedroom",
+        "label": "Bed",
+        "threshold_adc": 3000,
+        "calibration_weight_kg": 50.0,
+    },
+    "toilet": {
+        "x": 1.45,
+        "y": 4.15,
+        "room": "toilet",
+        "label": "Toilet",
+        "threshold_adc": 3000,
+        "calibration_weight_kg": 50.0,
+    },
 }
 
 # Accuracy profile: keep room clamp tight for less edge drift.
@@ -37,18 +80,23 @@ STRICT_INROOM_OUTPUT = True
 VISUAL_VIEW_TRANSFORM = "none"
 
 # Positioning loop behavior
-# Fast real-time mode
-POSITION_UPDATE_INTERVAL_SEC = 1.0
-SNAPSHOT_WINDOW_SEC = 2.0
-MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 3
-MAX_READING_AGE_SEC = 5.0
+# Stability-first mode: use several synchronized frames while keeping updates under 10s.
+POSITION_UPDATE_INTERVAL_SEC = 2.0
+SNAPSHOT_WINDOW_SEC = 4.0
+MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 5
+MAX_READING_AGE_SEC = 7.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
-BEACON_ADV_INTERVAL_MS = 250
-MIN_SYNC_FRAMES_PER_UPDATE = 2
+BEACON_ADV_INTERVAL_MS = 100
+MIN_SYNC_FRAMES_PER_UPDATE = 4
+
+# When anchors report time_source="local" (no internet NTP), relax the timestamp
+# span check because their millis() clocks are not globally synchronized.
+ALLOW_LOCAL_TIME_SYNC = True
+LOCAL_TIME_SYNC_SPAN_LIMIT_SEC = 10.0
 
 # Packet-slot alignment robustness (server-side only, no firmware reflashing needed).
 SLOT_SYNC_REFERENCE_ANCHOR = "anchor_01"
@@ -57,7 +105,7 @@ SLOT_OFFSET_MAX_STEP_PER_UPDATE = 4
 SLOT_OFFSET_SEARCH_RADIUS = 80
 
 # Keep only near-synchronous anchor samples for trilateration.
-ANCHOR_SYNC_WINDOW_SEC = 1.4
+ANCHOR_SYNC_WINDOW_SEC = 0.4
 
 # Reject trilateration result if fitting error is too large.
 TRILATERATION_MAX_RMS_ERROR_M = 2.0
@@ -69,7 +117,7 @@ FALLBACK_IMPROVEMENT_MARGIN_M = 0.22
 USE_WEIGHTED_CENTROID_FALLBACK = True
 
 # Confidence scaling for residual/spread scoring.
-CONFIDENCE_ERROR_SCALE_M = 2.5
+CONFIDENCE_ERROR_SCALE_M = 1.8
 
 # Clamp RSSI-derived distance to a reasonable range (meters).
 MIN_DISTANCE_M = 0.2
@@ -77,21 +125,44 @@ MAX_DISTANCE_M = 13.0
 
 # Smooth final position output (exponential smoothing).
 USE_POSITION_SMOOTHING = True
-POSITION_SMOOTHING_ALPHA = 0.18
+POSITION_SMOOTHING_ALPHA = 0.45
 
 # Aggregate recent solved positions for a more stable reported coordinate.
 USE_POSITION_AGGREGATION = True
-POSITION_AGGREGATION_WINDOW = 3
+POSITION_AGGREGATION_WINDOW = 2
 POSITION_AGGREGATION_MODE = "median"  # "median" or "mean"
 
 # Stationary hold: lock coordinates when movement is tiny to prevent drift.
-USE_STATIONARY_HOLD = False
+USE_STATIONARY_HOLD = True
 # Avoid locking when confidence is low, otherwise wrong points can be held.
 HOLD_MIN_CONFIDENCE_FOR_LOCK = 0.62
-STATIONARY_MOVE_THRESHOLD_M = 0.30
-STATIONARY_CONFIRM_UPDATES = 3
-STATIONARY_RELEASE_FACTOR = 1.8
+STATIONARY_MOVE_THRESHOLD_M = 0.12
+STATIONARY_CONFIRM_UPDATES = 2
+STATIONARY_RELEASE_FACTOR = 2.5
 STATIONARY_RELEASE_CONFIRM_UPDATES = 2
+
+# RSSI outlier rejection using interquartile range before computing median.
+USE_RSSI_IQR_FILTER = True
+RSSI_IQR_MULTIPLIER = 1.5
+
+# Adaptive smoothing: confidence controls the smoothing alpha.
+# High confidence -> lower alpha (more smoothing).
+# Low confidence -> higher alpha (more responsive).
+USE_ADAPTIVE_SMOOTHING = False
+SMOOTHING_ALPHA_MIN = 0.08
+SMOOTHING_ALPHA_MAX = 0.55
+SMOOTHING_ALPHA_MAX_DELTA_PER_UPDATE = 0.1
+
+# Soft pressure-BLE fusion: blend furniture center with BLE coordinate instead of
+# jumping directly to the furniture center.
+USE_SOFT_PRESSURE_FUSION = True
+PRESSURE_FUSION_RADIUS_M = 2.0
+PRESSURE_FUSION_BLEND_WIDTH_M = 1.0
+
+# Motion / activity state detection.
+USE_MOTION_STATE = True
+MOTION_STATE_THRESHOLD_M = 0.15
+MOTION_STATE_CONFIRM_UPDATES = 2
 
 # Print debug output for each location update
 VERBOSE_LOGGING = True
