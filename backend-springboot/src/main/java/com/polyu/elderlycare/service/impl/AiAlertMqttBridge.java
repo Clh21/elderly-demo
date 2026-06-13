@@ -92,7 +92,7 @@ public class AiAlertMqttBridge {
             }
 
             AlertSeverity severity = json.has("severity") ? 
-                    AlertSeverity.valueOf(json.get("severity").asText().toUpperCase()) : AlertSeverity.HIGH;
+                    AlertSeverity.valueOf(json.get("severity").asText().toUpperCase()) : AlertSeverity.CRITICAL;
             
             String originalMsg = json.has("message") ? json.get("message").asText() : "检测到未知异常";
 
