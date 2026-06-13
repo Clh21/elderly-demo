@@ -292,25 +292,32 @@ bool syncClock() {
     if (WiFi.status() != WL_CONNECTED) return false;
     if (timeSynced) return true;
 
-    configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+    // 依次尝试多个 NTP 服务器，提高校园网/热点环境下的同步成功率
+    for (int i = 0; i < NTP_SERVER_COUNT; i++) {
+        const char* server = NTP_SERVERS[i];
+        Serial.printf("[TIME] 尝试 NTP 同步: %s\n", server);
+        configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET_SEC, server);
 
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 4000)) {
-        struct timeval nowTv;
-        if (gettimeofday(&nowTv, nullptr) == 0 && nowTv.tv_sec >= 100000) {
-            uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
-            epochBaseMs = nowMs - (uint64_t)millis();
-            timeSynced = true;
-            Serial.printf("[TIME] synced via NTP, epoch_ms=%llu\n", getEpochMsNow());
-            return true;
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo, 4000)) {
+            struct timeval nowTv;
+            if (gettimeofday(&nowTv, nullptr) == 0 && nowTv.tv_sec >= 100000) {
+                uint64_t nowMs = ((uint64_t)nowTv.tv_sec * 1000ULL) + ((uint64_t)nowTv.tv_usec / 1000ULL);
+                epochBaseMs = nowMs - (uint64_t)millis();
+                timeSynced = true;
+                Serial.printf("[TIME] synced via NTP (%s), epoch_ms=%llu\n", server, getEpochMsNow());
+                return true;
+            }
         }
+        Serial.printf("[TIME] NTP %s 同步失败\n", server);
+        delay(500);
     }
 
     if (USE_LOCAL_TIME_FALLBACK) {
         // 无外网时使用本地 millis()。Python 端看到 time_source=local 会放宽同步要求。
         epochBaseMs = 0;
         timeSynced = true;
-        Serial.println("[TIME] NTP unavailable, using local millis() fallback");
+        Serial.println("[TIME] 所有 NTP 服务器不可用，使用本地 millis() fallback");
         return true;
     }
 
