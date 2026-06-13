@@ -29,7 +29,13 @@ static const char* MQTT_CLIENT = "esp32_beacon_03";  // 每个锚点必须唯一
 
 // ----- 锚点与目标设备 -----
 static const char* BEACON_ID = "anchor_03";          // anchor_01 / anchor_02 / anchor_03
-static const char* TARGET_MAC = "20:a7:16:60:f9:b9";
+static const char* TARGET_ID = "real-watch-001";
+static const uint8_t TARGET_IBEACON_UUID[16] = {
+    0x8F, 0x0A, 0x5A, 0x8C, 0x6C, 0x3A, 0x4C, 0x4F,
+    0x9E, 0x2B, 0x2C, 0x9C, 0x9F, 0x3C, 0x9E, 0x10
+};
+static const uint16_t TARGET_IBEACON_MAJOR = 1;
+static const uint16_t TARGET_IBEACON_MINOR = 1;
 
 // ----- NTP 时间同步（用于 packet_slot 对齐） -----
 // 热点网络下优先用本地 broker 电脑的 IP（默认 192.168.137.1）。

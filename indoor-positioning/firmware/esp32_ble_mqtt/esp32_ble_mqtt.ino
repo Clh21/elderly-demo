@@ -173,20 +173,65 @@ void sortSlotSamplesBySlot() {
 // =====================================================
 // ============ BLE 扫描回调 ============
 // =====================================================
+bool parseTargetIBeacon(
+    BLEAdvertisedDevice& device,
+    uint16_t& major,
+    uint16_t& minor,
+    int8_t& measuredPower
+) {
+    if (!device.haveManufacturerData()) {
+        return false;
+    }
+
+    String manufacturerData = device.getManufacturerData();
+    if (manufacturerData.length() < 25) {
+        return false;
+    }
+
+    const uint8_t* payload =
+        reinterpret_cast<const uint8_t*>(manufacturerData.c_str());
+
+    // Company ID 0x004C is little-endian, followed by iBeacon header 0x02 0x15.
+    if (payload[0] != 0x4C || payload[1] != 0x00 ||
+        payload[2] != 0x02 || payload[3] != 0x15) {
+        return false;
+    }
+
+    if (memcmp(payload + 4, TARGET_IBEACON_UUID, sizeof(TARGET_IBEACON_UUID)) != 0) {
+        return false;
+    }
+
+    major = (static_cast<uint16_t>(payload[20]) << 8) | payload[21];
+    minor = (static_cast<uint16_t>(payload[22]) << 8) | payload[23];
+    measuredPower = static_cast<int8_t>(payload[24]);
+
+    return major == TARGET_IBEACON_MAJOR && minor == TARGET_IBEACON_MINOR;
+}
+
 class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice device) {
-        String mac = device.getAddress().toString().c_str();
-        if (mac.equalsIgnoreCase(TARGET_MAC)) {
-            if (!timeSynced) return;
+        uint16_t major = 0;
+        uint16_t minor = 0;
+        int8_t measuredPower = 0;
+        if (!parseTargetIBeacon(device, major, minor, measuredPower)) return;
+        if (!timeSynced) return;
 
-            int raw = device.getRSSI();
-            float filtered = kalmanFilter((float)raw);
-            uint64_t epochMs = getEpochMsNow();
-            if (epochMs == 0) return;
+        int raw = device.getRSSI();
+        float filtered = kalmanFilter((float)raw);
+        uint64_t epochMs = getEpochMsNow();
+        if (epochMs == 0) return;
 
-            uint32_t slot = (uint32_t)(epochMs / (uint64_t)BEACON_ADV_INTERVAL_MS);
-            upsertSlotSample(slot, raw, filtered, epochMs);
-        }
+        uint32_t slot = (uint32_t)(epochMs / (uint64_t)BEACON_ADV_INTERVAL_MS);
+        upsertSlotSample(slot, raw, filtered, epochMs);
+
+        Serial.printf(
+            "[BLE] watch=%s major=%u minor=%u RSSI=%d dBm measuredPower=%d\n",
+            TARGET_ID,
+            major,
+            minor,
+            raw,
+            measuredPower
+        );
     }
 };
 
@@ -312,7 +357,9 @@ void publishRSSI(int rawRSSI, float filteredRSSI, uint64_t rxEpochMs, uint32_t p
     // 使用 ArduinoJson 构建 JSON
     JsonDocument doc;
     doc["anchor"]   = BEACON_ID;
-    doc["target"]   = TARGET_MAC;
+    doc["target"]   = TARGET_ID;
+    doc["ibeacon_major"] = TARGET_IBEACON_MAJOR;
+    doc["ibeacon_minor"] = TARGET_IBEACON_MINOR;
     doc["raw"]      = rawRSSI;
     doc["filtered"] = round(filteredRSSI * 10.0) / 10.0;  // 保留1位小数
     doc["ts"]       = millis();
@@ -360,7 +407,12 @@ void setup() {
     Serial.println("============================================");
     Serial.println("  ESP32 BLE + MQTT 室内定位锚点");
     Serial.printf("  节点 ID: %s\n", BEACON_ID);
-    Serial.printf("  目标信标: %s\n", TARGET_MAC);
+    Serial.printf(
+        "  Target watch: %s (major=%u, minor=%u)\n",
+        TARGET_ID,
+        TARGET_IBEACON_MAJOR,
+        TARGET_IBEACON_MINOR
+    );
     Serial.println("============================================");
 
     // 构建 MQTT Topic
@@ -385,8 +437,10 @@ void setup() {
     // 初始化 BLE
     BLEDevice::init("ESP32_Anchor");
     pBLEScan = BLEDevice::getScan();
-    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks());
-    pBLEScan->setActiveScan(true);
+    // Receive every repeated advertisement from the watch.
+    pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
+    // The watch broadcasts a non-scannable iBeacon packet.
+    pBLEScan->setActiveScan(false);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
 
