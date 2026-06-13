@@ -24,7 +24,7 @@ const METRIC_CONFIG = {
     iconClassName: 'text-orange-500',
   },
   eda: {
-    label: 'Stress (EDA)',
+    label: 'EDA Arousal',
     unit: 'uS',
     icon: Zap,
     iconClassName: 'text-purple-500',

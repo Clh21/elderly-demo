@@ -42,12 +42,13 @@ const WatchPairingPanel = ({
     setWatchIp(savedPayload?.watchIp || '');
     setWatchPort(String(savedPayload?.watchPort || DEFAULT_WATCH_PORT));
     setPairingCode('');
-    setServerHost(savedPayload?.serverHost || serverTarget?.serverHost || '');
-    setServerPort(String(savedPayload?.serverPort || serverTarget?.serverPort || 3100));
+    setServerHost(serverTarget?.serverHost || savedPayload?.serverHost || '');
+    setServerPort(String(serverTarget?.serverPort || savedPayload?.serverPort || 3100));
   }, [savedRecord, selectedWatch, serverTarget]);
 
   const effectiveResult = result || savedRecord?.result;
   const paired = Boolean(savedRecord || result);
+  const pairingCodeRequired = !paired;
   const savedAt = formatSavedAt(savedRecord?.savedAt);
   const buttonLabel = paired ? 'Repair' : 'Pair';
 
@@ -55,6 +56,7 @@ const WatchPairingPanel = ({
     selectedWatch &&
     watchIp.trim() &&
     Number(watchPort) > 0 &&
+    (!pairingCodeRequired || pairingCode.trim()) &&
     serverHost.trim() &&
     Number(serverPort) > 0 &&
     !isConfiguring
@@ -122,7 +124,8 @@ const WatchPairingPanel = ({
           <Input
             value={pairingCode}
             onChange={(event) => setPairingCode(event.target.value)}
-            placeholder="Shown on watch"
+            placeholder={pairingCodeRequired ? 'Required from watch' : 'Optional when repairing'}
+            required={pairingCodeRequired}
             autoComplete="off"
           />
         </label>
@@ -159,6 +162,12 @@ const WatchPairingPanel = ({
             {effectiveResult.serverEndpoint || 'Watch configuration saved.'}
             {savedAt ? ` Last paired ${savedAt}.` : ''}
           </span>
+        </div>
+      ) : null}
+
+      {pairingCodeRequired && !pairingCode.trim() ? (
+        <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Enter the pairing code shown on the watch settings page before pairing.
         </div>
       ) : null}
 

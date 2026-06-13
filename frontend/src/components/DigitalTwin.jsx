@@ -64,7 +64,7 @@ const DigitalTwin = ({ watchId, watchData, resident }) => {
         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-purple-500" />
-            <span className="text-sm font-medium">Stress Level</span>
+            <span className="text-sm font-medium">EDA Arousal</span>
           </div>
           <span className="text-sm font-bold text-gray-900">
             {watchData?.edaState || '--'}

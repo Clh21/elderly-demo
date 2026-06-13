@@ -24,9 +24,9 @@ const getMetricColor = (metric) => {
 const getEdaStateLabel = (value) => {
   switch (value) {
     case 1:
-      return 'Relaxed';
+      return 'Calm';
     case 2:
-      return 'Stable';
+      return 'Baseline';
     case 3:
       return 'Elevated';
     case 4:
@@ -136,7 +136,7 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
             <>
               <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="rounded-xl bg-slate-50 px-5 py-4">
-                  <div className="text-sm text-slate-500">{isEdaMetric ? 'Stress range' : (isWearMetric ? 'Current state' : 'Range')}</div>
+                  <div className="text-sm text-slate-500">{isEdaMetric ? 'Arousal range' : (isWearMetric ? 'Current state' : 'Range')}</div>
                   <div className="mt-2 text-4xl font-bold text-slate-900">
                     {isWearMetric
                       ? (summary.latestLabel || '--')
@@ -242,7 +242,7 @@ const MetricDetailModal = ({ isOpen, onClose, watchId, metric }) => {
                           if (isEdaMetric) {
                             const label = payload?.payload?.stateLabel || getEdaStateLabel(value);
                             const raw = payload?.payload?.rawEda;
-                            return [raw != null ? `${label} (${raw} µS)` : label, 'EDA Stress'];
+                            return [raw != null ? `${label} (${raw} µS)` : label, 'EDA Arousal'];
                           }
                           return [`${value} ${unit}`, data.label];
                         }}
