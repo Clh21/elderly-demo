@@ -80,18 +80,18 @@ STRICT_INROOM_OUTPUT = True
 VISUAL_VIEW_TRANSFORM = "none"
 
 # Positioning loop behavior
-# Fast real-time mode
-POSITION_UPDATE_INTERVAL_SEC = 0.3
-SNAPSHOT_WINDOW_SEC = 2.0
-MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 1
-MAX_READING_AGE_SEC = 8.0
+# Stability-first mode: use several synchronized frames while keeping updates under 10s.
+POSITION_UPDATE_INTERVAL_SEC = 2.0
+SNAPSHOT_WINDOW_SEC = 4.0
+MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 5
+MAX_READING_AGE_SEC = 7.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 100
-MIN_SYNC_FRAMES_PER_UPDATE = 2
+MIN_SYNC_FRAMES_PER_UPDATE = 4
 
 # When anchors report time_source="local" (no internet NTP), relax the timestamp
 # span check because their millis() clocks are not globally synchronized.
@@ -105,7 +105,7 @@ SLOT_OFFSET_MAX_STEP_PER_UPDATE = 4
 SLOT_OFFSET_SEARCH_RADIUS = 80
 
 # Keep only near-synchronous anchor samples for trilateration.
-ANCHOR_SYNC_WINDOW_SEC = 2.5
+ANCHOR_SYNC_WINDOW_SEC = 0.4
 
 # Reject trilateration result if fitting error is too large.
 TRILATERATION_MAX_RMS_ERROR_M = 2.0
@@ -125,11 +125,11 @@ MAX_DISTANCE_M = 13.0
 
 # Smooth final position output (exponential smoothing).
 USE_POSITION_SMOOTHING = True
-POSITION_SMOOTHING_ALPHA = 0.18
+POSITION_SMOOTHING_ALPHA = 0.45
 
 # Aggregate recent solved positions for a more stable reported coordinate.
 USE_POSITION_AGGREGATION = True
-POSITION_AGGREGATION_WINDOW = 3
+POSITION_AGGREGATION_WINDOW = 2
 POSITION_AGGREGATION_MODE = "median"  # "median" or "mean"
 
 # Stationary hold: lock coordinates when movement is tiny to prevent drift.
@@ -148,7 +148,7 @@ RSSI_IQR_MULTIPLIER = 1.5
 # Adaptive smoothing: confidence controls the smoothing alpha.
 # High confidence -> lower alpha (more smoothing).
 # Low confidence -> higher alpha (more responsive).
-USE_ADAPTIVE_SMOOTHING = True
+USE_ADAPTIVE_SMOOTHING = False
 SMOOTHING_ALPHA_MIN = 0.08
 SMOOTHING_ALPHA_MAX = 0.55
 SMOOTHING_ALPHA_MAX_DELTA_PER_UPDATE = 0.1

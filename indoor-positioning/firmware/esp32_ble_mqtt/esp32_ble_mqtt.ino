@@ -42,7 +42,6 @@
 #include <BLEScan.h>
 #include <time.h>
 #include <sys/time.h>
-#include <esp_coexist.h>
 #include "device_config.h"
 
 // =====================================================
@@ -64,14 +63,14 @@ float kalman_k = 0.0;       // 卡尔曼增益（自动计算）
 // =====================================================
 // ============ 扫描与运行参数 ============
 // =====================================================
-const int SCAN_TIME          = 2;       // BLE 扫描时间（秒），加长以捕获浮动广播间隔的手表
-const int SCAN_INTERVAL_MS   = 100;     // 扫描间隔（毫秒），给 MQTT 发送和 WiFi 调度留时间
+const int SCAN_TIME          = 1;       // BLE 扫描时间（秒）
+const int SCAN_INTERVAL_MS   = 20;      // 每轮扫描后的短暂 WiFi/MQTT 处理窗口
 const unsigned long WIFI_RETRY_MS  = 5000;  // WiFi 重连间隔
 const unsigned long MQTT_RETRY_MS  = 5000;  // MQTT 重连间隔
 const unsigned long HEARTBEAT_MS   = 30000; // 心跳包间隔（30秒）
+const unsigned long WATCH_LOST_TIMEOUT_MS = 7000; // 连续7秒无目标包才判定丢失
 
 // 每 100ms 为一包 beacon 周期（与手表高频广播保持一致）
-// 如果实测手表广播间隔不是 100ms，请同步修改 positioning_config.py 中的 BEACON_ADV_INTERVAL_MS
 const uint32_t BEACON_ADV_INTERVAL_MS = 100;
 const uint8_t  MAX_SLOT_SAMPLES = 16;
 
@@ -83,6 +82,8 @@ PubSubClient mqttClient(wifiClient);
 BLEScan* pBLEScan;
 
 unsigned long lastHeartbeat = 0;
+volatile unsigned long lastWatchSeenMs = 0;
+volatile bool watchEverSeen = false;
 
 uint64_t epochBaseMs = 0;
 bool timeSynced = false;
@@ -219,6 +220,9 @@ class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
         if (!timeSynced) return;
 
         int raw = device.getRSSI();
+        lastWatchSeenMs = millis();
+        watchEverSeen = true;
+
         float filtered = kalmanFilter((float)raw);
         uint64_t epochMs = getEpochMsNow();
         if (epochMs == 0) return;
@@ -429,14 +433,6 @@ void setup() {
     WiFi.mode(WIFI_OFF);
     delay(1000);
     connectWiFi();
-
-    // 锚点场景优先保证 BLE 扫描，关闭 WiFi 省电避免射频切换延迟
-    if (WiFi.status() == WL_CONNECTED) {
-        WiFi.setSleep(false);
-        esp_coex_preference_set(ESP_COEX_PREFER_BT);
-        Serial.println("[WiFi] 省电模式已关闭，coexistence 偏好已设为 BLE 优先");
-    }
-
     syncClock();
 
     // 初始化 MQTT
@@ -451,10 +447,10 @@ void setup() {
     pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
     // The watch broadcasts a non-scannable iBeacon packet.
     pBLEScan->setActiveScan(false);
-    // 扫描参数兼顾 WiFi/BLE 共存：interval=160*0.625=100ms，window=80*0.625=50ms。
-    // BLE 占用约 50% 射频时间，显著提升单周期内捕获手表广播的概率，同时保留 WiFi/MQTT 窗口。
+    // interval=160*0.625=100ms，window=128*0.625=80ms。
+    // 80% BLE 扫描占空比兼顾目标包接收率与 WiFi/MQTT 上传时间。
     pBLEScan->setInterval(160);
-    pBLEScan->setWindow(80);
+    pBLEScan->setWindow(128);
 
     Serial.println("\n[系统] 初始化完成，开始扫描...\n");
 }
@@ -508,7 +504,17 @@ void loop() {
             mqttClient.loop();
         }
     } else {
-        Serial.printf("[BLE] %lu - 信标丢失\n", millis());
+        const unsigned long nowMs = millis();
+        if (!watchEverSeen) {
+            Serial.println("[BLE] 尚未发现目标手表");
+        } else {
+            const unsigned long missingMs = nowMs - lastWatchSeenMs;
+            if (missingMs >= WATCH_LOST_TIMEOUT_MS) {
+                Serial.printf("[BLE] 手表信号已连续丢失 %lu ms\n", missingMs);
+            } else {
+                Serial.printf("[BLE] 本轮无样本，距上次接收 %lu ms\n", missingMs);
+            }
+        }
     }
 
     pBLEScan->clearResults();
