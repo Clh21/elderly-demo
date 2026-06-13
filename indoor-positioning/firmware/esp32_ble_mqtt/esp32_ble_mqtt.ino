@@ -441,8 +441,10 @@ void setup() {
     pBLEScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
     // The watch broadcasts a non-scannable iBeacon packet.
     pBLEScan->setActiveScan(false);
-    pBLEScan->setInterval(100);
-    pBLEScan->setWindow(99);
+    // 扫描参数要兼顾 WiFi/BLE 共存：interval=160*0.625=100ms，window=40*0.625=25ms。
+    // 这样 BLE 占用 25% 射频时间，给 WiFi/MQTT 留出足够窗口，反而减少 BLE 丢包。
+    pBLEScan->setInterval(160);
+    pBLEScan->setWindow(40);
 
     Serial.println("\n[系统] 初始化完成，开始扫描...\n");
 }
@@ -475,6 +477,14 @@ void loop() {
     // 3. BLE 扫描
     clearSlotSamples();
     pBLEScan->start(SCAN_TIME, false);
+
+    // 非阻塞扫描需要等它跑完（约 SCAN_TIME 秒），期间喂 MQTT 保活。
+    // 如果立即检查 slotSampleCount，回调可能还没触发，会误判为信标丢失。
+    unsigned long scanStart = millis();
+    while (pBLEScan->isScanning() && millis() - scanStart < (unsigned long)(SCAN_TIME + 1) * 1000UL) {
+        mqttClient.loop();
+        delay(10);
+    }
 
     if (slotSampleCount > 0) {
         sortSlotSamplesBySlot();
