@@ -82,16 +82,16 @@ VISUAL_VIEW_TRANSFORM = "none"
 # Positioning loop behavior
 # Fast real-time mode
 POSITION_UPDATE_INTERVAL_SEC = 0.3
-SNAPSHOT_WINDOW_SEC = 1.0
-MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 2
-MAX_READING_AGE_SEC = 5.0
+SNAPSHOT_WINDOW_SEC = 2.0
+MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 1
+MAX_READING_AGE_SEC = 8.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 100
-MIN_SYNC_FRAMES_PER_UPDATE = 1
+MIN_SYNC_FRAMES_PER_UPDATE = 2
 
 # When anchors report time_source="local" (no internet NTP), relax the timestamp
 # span check because their millis() clocks are not globally synchronized.
@@ -105,7 +105,7 @@ SLOT_OFFSET_MAX_STEP_PER_UPDATE = 4
 SLOT_OFFSET_SEARCH_RADIUS = 80
 
 # Keep only near-synchronous anchor samples for trilateration.
-ANCHOR_SYNC_WINDOW_SEC = 1.4
+ANCHOR_SYNC_WINDOW_SEC = 2.5
 
 # Reject trilateration result if fitting error is too large.
 TRILATERATION_MAX_RMS_ERROR_M = 2.0
