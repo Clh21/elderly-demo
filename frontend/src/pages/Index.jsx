@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import AlertPopup from '../components/AlertPopup';
+import AiAnalysisBar from '../components/dashboard/AiAnalysisBar';
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import DashboardSidePanel from '../components/dashboard/DashboardSidePanel';
 import ResidentPicker from '../components/dashboard/ResidentPicker';
@@ -324,6 +325,7 @@ const Index = () => {
                   onOpenEcgHistory={() => setShowEcgHistory(true)}
                   onOpenMetric={setActiveMetricModal}
                 />
+                <AiAnalysisBar watchId={selectedWatch} />
               </div>
 
               <DashboardSidePanel

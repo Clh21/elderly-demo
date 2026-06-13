@@ -1485,6 +1485,95 @@ app.post('/api/watch-reading', async (req, res) => {
   }
 });
 
+// ── POST /api/watch/:watchId/ai-analysis ──────────────────────
+app.post('/api/watch/:watchId/ai-analysis', async (req, res) => {
+  const apiKey = process.env.ZHIPU_API_KEY || req.headers['x-zhipu-api-key'] || 'f84f6de07a254ba3a894cf8c7f885a64.OCWflzxyHiU3WETe';
+  if (!apiKey) {
+    return res.status(400).json({ error: 'Missing ZHIPU_API_KEY. Please provide it in backend/.env or headers.' });
+  }
+
+  try {
+    const watchId = req.params.watchId;
+    const [rows] = await pool.query(
+      `SELECT minute_slot, heart_rate, temperature, eda, eda_label, wear_status, event_type
+       FROM minute_readings
+       WHERE watch_id = ? AND minute_slot >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       ORDER BY minute_slot ASC`,
+       [watchId]
+    );
+
+    let wearMins = 0;
+    let hrSum = 0; let hrCount = 0;
+    let edaSum = 0; let edaCount = 0;
+    let tempSum = 0; let tempCount = 0;
+    let events = [];
+    let hourlyData = {};
+
+    for (const r of rows) {
+      if (r.wear_status === 'worn') wearMins++;
+      const hourStr = new Date(r.minute_slot).toISOString().substring(0, 13) + ':00';
+      if (!hourlyData[hourStr]) {
+        hourlyData[hourStr] = { hr: [], eda: [], temp: [] };
+      }
+      if (r.heart_rate) { hrSum += parseFloat(r.heart_rate); hrCount++; hourlyData[hourStr].hr.push(parseFloat(r.heart_rate)); }
+      if (r.eda) { edaSum += parseFloat(r.eda); edaCount++; hourlyData[hourStr].eda.push(parseFloat(r.eda)); }
+      if (r.temperature) { tempSum += parseFloat(r.temperature); tempCount++; hourlyData[hourStr].temp.push(parseFloat(r.temperature)); }
+      if (r.event_type && !events.includes(r.event_type)) events.push(r.event_type);
+    }
+
+    const hourlySummary = Object.keys(hourlyData).sort().map(h => {
+      const d = hourlyData[h];
+      const avgHr = d.hr.length ? (d.hr.reduce((a,b)=>a+b,0)/d.hr.length).toFixed(1) : '-';
+      const avgEda = d.eda.length ? (d.eda.reduce((a,b)=>a+b,0)/d.eda.length).toFixed(2) : '-';
+      const avgTemp = d.temp.length ? (d.temp.reduce((a,b)=>a+b,0)/d.temp.length).toFixed(1) : '-';
+      return `[${h}] HR: ${avgHr}, EDA: ${avgEda}, Temp: ${avgTemp}`;
+    });
+
+    const promptData = `
+手表ID: ${watchId}
+统计时间段: 过去24小时
+数据点数: ${rows.length} 分钟
+佩戴时长: ${wearMins} 分钟
+心率平均值: ${hrCount > 0 ? (hrSum/hrCount).toFixed(1) : '无'} bpm
+EDA平均值: ${edaCount > 0 ? (edaSum/edaCount).toFixed(2) : '无'} uS
+体温平均值: ${tempCount > 0 ? (tempSum/tempCount).toFixed(1) : '无'} °C
+记录的事件/活动状态: ${events.length > 0 ? events.join(', ') : '无记录'}
+
+每小时趋势摘要:
+${hourlySummary.join('\n')}
+
+请作为一名专业的老年护理数据分析师，根据上述最近24小时的健康数据（包括心率、EDA、温度、佩戴状态、活动状态历史和静止持续时间的可用线索），进行一次全面的数据分析。指出任何异常情况，并给出简短的健康建议。格式尽量简洁明了。
+`;
+
+    const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "glm-4-flash",
+        messages: [
+          { role: "system", content: "你是一个智能健康数据分析助手。" },
+          { role: "user", content: promptData }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) {
+      return res.status(500).json({ error: 'Zhipu API error: ' + data.error.message });
+    }
+
+    const aiText = data.choices[0].message.content;
+    res.json({ analysis: aiText });
+
+  } catch (error) {
+    console.error('AI Analysis Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── Start ────────────────────────────────────────────────────
 const PORT = 3100;
 app.listen(PORT, () => {

@@ -668,9 +668,17 @@ class IndoorPositioningServer:
 
     def apply_stationary_hold(self, x: float, y: float) -> Tuple[float, float, bool]:
         if not USE_STATIONARY_HOLD:
+            # 构造警报数据包 (增加缺失的 preliminary_alert 变量)
+            preliminary_alert = {
+                "type": "abnormal_stillness",
+                "message": "检测到长时静止，可能发生跌倒或昏迷",
+                "severity": "CRITICAL"  # 保持与 Java Enum 对齐
+            }
+            # 发布到初筛 Topic，让 AI 去接管
+            self.client.publish("indoor/alert/preliminary", json.dumps(preliminary_alert), qos=1)
             self.output_position = (x, y)
             return x, y, False
-
+            
         threshold = max(0.01, STATIONARY_MOVE_THRESHOLD_M)
         release_threshold = threshold * max(1.1, STATIONARY_RELEASE_FACTOR)
 

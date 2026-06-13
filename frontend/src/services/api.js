@@ -45,6 +45,19 @@ export const fetchEcgHistory = async (watchId, page = 1, pageSize = 10) => {
 };
 
 /**
+ * Fetches AI analysis for the recent 24h data.
+ *
+ * @param {string} watchId watch id to query
+ * @param {string} apiKey Zhipu API key
+ * @returns {Promise<object>} AI analysis result
+ */
+export const fetchAiAnalysis = async (watchId, apiKey) => {
+  const headers = apiKey ? { 'x-zhipu-api-key': apiKey } : {};
+  const response = await apiFetch(`/watch/${watchId}/ai-analysis`, { method: 'POST', headers });
+  return parseJson(response, 'Failed to fetch AI analysis');
+};
+
+/**
  * Fetches one ECG history record with waveform detail.
  *
  * @param {string} watchId watch id that owns the reading

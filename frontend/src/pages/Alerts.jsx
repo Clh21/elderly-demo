@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Clock, CheckCircle, XCircle, Filter, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, CheckCircle, XCircle, Filter, Trash2, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { clearAlerts, fetchAlerts, resolveAlert } from '../services/api';
 
@@ -44,7 +44,7 @@ const Alerts = () => {
   const activeAlertCount = alerts?.filter(alert => alert.status === 'active').length || 0;
 
   const getSeverityIcon = (severity) => {
-    switch (severity) {
+    switch (severity?.toLowerCase()) {
       case 'critical':
         return <XCircle className="h-5 w-5 text-red-500" />;
       case 'warning':
@@ -61,9 +61,10 @@ const Alerts = () => {
       info: 'bg-blue-100 text-blue-800 border-blue-200'
     };
     
+    const sevKey = severity?.toLowerCase() || 'info';
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${styles[severity] || styles.info}`}>
-        {severity.charAt(0).toUpperCase() + severity.slice(1)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${styles[sevKey] || styles.info}`}>
+        {severity ? severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase() : 'Info'}
       </span>
     );
   };
@@ -74,14 +75,16 @@ const Alerts = () => {
       resolved: 'bg-green-100 text-green-800',
     };
     
+    const statKey = status?.toLowerCase() || 'active';
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || styles.active}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[statKey] || styles.active}`}>
+        {status ? status.charAt(0).toUpperCase() + status.slice(1).toLowerCase() : 'Active'}
       </span>
     );
   };
 
   const getTimeAgo = (timestamp) => {
+    if (!timestamp) return 'Unknown time';
     const now = new Date();
     const alertTime = new Date(timestamp);
     const diffInMinutes = Math.floor((now - alertTime) / (1000 * 60));
@@ -185,7 +188,7 @@ const Alerts = () => {
               <h3 className="text-lg font-semibold text-red-900">Critical Alerts</h3>
             </div>
             <div className="text-2xl font-bold text-red-900">
-              {alerts?.filter(a => a.severity === 'critical' && a.status === 'active').length || 0}
+              {alerts?.filter(a => a.severity?.toLowerCase() === 'critical' && a.status === 'active').length || 0}
             </div>
           </div>
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
@@ -194,7 +197,7 @@ const Alerts = () => {
               <h3 className="text-lg font-semibold text-yellow-900">Warning Alerts</h3>
             </div>
             <div className="text-2xl font-bold text-yellow-900">
-              {alerts?.filter(a => a.severity === 'warning' && a.status === 'active').length || 0}
+              {alerts?.filter(a => a.severity?.toLowerCase() === 'warning' && a.status === 'active').length || 0}
             </div>
           </div>
           <div className="bg-green-50 border border-green-200 rounded-lg p-6">
@@ -210,49 +213,94 @@ const Alerts = () => {
 
         {/* Alerts List */}
         <div className="space-y-4">
-          {filteredAlerts.map((alert) => (
-            <div key={alert.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4 flex-1">
-                  {getSeverityIcon(alert.severity)}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{alert.residentName}</h3>
-                      {getSeverityBadge(alert.severity)}
-                      {getStatusBadge(alert.status)}
-                    </div>
-                    <p className="text-gray-700 mb-2">{alert.message}</p>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {getTimeAgo(alert.timestamp)}
+          {filteredAlerts.map((alert) => {
+            // ==========================================
+            // 【新增逻辑】识别并分离 AI 的深度评估文本
+            // ==========================================
+            const messageStr = alert.message || '';
+            const isAiVerified = messageStr.includes("💡【AI 深度评估】:");
+            let baseMsg = messageStr;
+            let aiMsg = null;
+
+            if (isAiVerified) {
+              const parts = messageStr.split("💡【AI 深度评估】:");
+              baseMsg = parts[0].trim();
+              aiMsg = parts[1].trim();
+            }
+
+            return (
+              <div key={alert.id} className={`bg-white rounded-lg shadow-sm border ${alert.severity === 'CRITICAL' ? 'border-red-200' : 'border-gray-200'} p-6 hover:shadow-md transition-shadow`}>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-4 flex-1">
+                    {getSeverityIcon(alert.severity)}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {alert.residentName || `Resident #${alert.residentId}`}
+                        </h3>
+                        {getSeverityBadge(alert.severity)}
+                        {getStatusBadge(alert.status)}
                       </div>
-                      <div>Type: {alert.type.replace('_', ' ')}</div>
+                      
+                      {/* 渲染基础警报描述 (保留换行符) */}
+                      <p className="text-gray-700 mb-3 whitespace-pre-wrap">{baseMsg}</p>
+
+                      {/* ========================================== */}
+                      {/* 【新增UI】专属 AI 气泡组件，利用 Tailwind 样式 */}
+                      {/* ========================================== */}
+                      {isAiVerified && (
+                        <div className="mb-4 bg-indigo-50 border border-indigo-100 rounded-lg p-4 flex gap-3 shadow-inner">
+                          <div className="mt-0.5 bg-white p-1 rounded-full shadow-sm h-fit">
+                            <Sparkles className="h-5 w-5 text-indigo-500" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-indigo-900 mb-1 flex items-center gap-2">
+                              AI 守护助手深度复核
+                              <span className="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">
+                                Verified
+                              </span>
+                            </h4>
+                            <p className="text-sm text-indigo-800 leading-relaxed">
+                              {aiMsg}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-4 w-4" />
+                          {getTimeAgo(alert.timestamp || alert.createdAt)}
+                        </div>
+                        <div className="capitalize">
+                          Type: {alert.type ? alert.type.replace(/_/g, ' ').toLowerCase() : 'Unknown'}
+                        </div>
+                      </div>
                     </div>
                   </div>
+                  
+                  {canManageAlerts && alert.status === 'active' && (
+                    <div className="flex gap-2 ml-4">
+                      <button
+                        type="button"
+                        onClick={() => resolveAlertMutation.mutate(alert.id)}
+                        disabled={resolveAlertMutation.isPending}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition-colors shadow-sm"
+                      >
+                        {resolveAlertMutation.isPending ? 'Resolving...' : 'Resolve'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                
-                {canManageAlerts && alert.status === 'active' && (
-                  <div className="flex gap-2 ml-4">
-                    <button
-                      type="button"
-                      onClick={() => resolveAlertMutation.mutate(alert.id)}
-                      disabled={resolveAlertMutation.isPending}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                    >
-                      {resolveAlertMutation.isPending ? 'Resolving...' : 'Resolve'}
-                    </button>
-                  </div>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {filteredAlerts.length === 0 && (
           <div className="text-center py-12">
-            <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No alerts found matching your criteria.</p>
+            <AlertTriangle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg">No alerts found matching your criteria.</p>
           </div>
         )}
       </div>

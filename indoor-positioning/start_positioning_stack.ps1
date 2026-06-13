@@ -53,7 +53,7 @@ if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
     throw "Python not found: $PythonExe"
 }
 
-if (-not $SkipBroker) {
+if (-not $SkipBroker) {indoor_positioning_server
     if (Test-Path $BrokerScript) {
         Write-Output "[STEP] Ensuring MQTT broker is running..."
         & $BrokerScript start
@@ -67,6 +67,9 @@ Start-ScriptIfNotRunning -ScriptName "indoor_positioning_server.py" -Label "Posi
 
 Write-Output "[STEP] Starting visualizer..."
 Start-ScriptIfNotRunning -ScriptName "indoor_position_visualizer.py" -Label "Position visualizer"
+
+Write-Output "[STEP] Starting AI Alert Verification Worker..."
+Start-ScriptIfNotRunning -ScriptName "ai_alert_worker.py" -Label "AI Alert Worker"
 
 if ($StartSubscriber) {
     Write-Output "[STEP] Starting MQTT test subscriber..."
