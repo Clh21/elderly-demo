@@ -9,17 +9,39 @@ $MosquittoExe = "C:\Program Files\Mosquitto\mosquitto.exe"
 $ConfigPath = Join-Path $PSScriptRoot "mosquitto.conf"
 
 function Get-BrokerListeners {
-    Get-NetTCPConnection -LocalPort 1883 -State Listen -ErrorAction SilentlyContinue |
+    $listeners = Get-NetTCPConnection -LocalPort 1883 -State Listen -ErrorAction SilentlyContinue |
         Select-Object LocalAddress, LocalPort, OwningProcess
+    if ($listeners) {
+        return $listeners
+    }
+
+    netstat -ano -p TCP |
+        Select-String -Pattern '^\s*TCP\s+(\S+):1883\s+\S+\s+LISTENING\s+(\d+)\s*$' |
+        ForEach-Object {
+            [PSCustomObject]@{
+                LocalAddress = $_.Matches[0].Groups[1].Value
+                LocalPort = 1883
+                OwningProcess = [int]$_.Matches[0].Groups[2].Value
+            }
+        }
 }
 
 function Get-LanIPv4 {
-    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    $addresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object {
             $_.IPAddress -ne "127.0.0.1" -and
             $_.IPAddress -notlike "169.254.*"
         } |
         Select-Object -ExpandProperty IPAddress -Unique
+    if ($addresses) {
+        return $addresses
+    }
+
+    ipconfig |
+        Select-String -Pattern 'IPv4[^:]*:\s*(\d+\.\d+\.\d+\.\d+)' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value } |
+        Where-Object { $_ -ne "127.0.0.1" -and $_ -notlike "169.254.*" } |
+        Select-Object -Unique
 }
 
 function Show-Status {
@@ -57,7 +79,7 @@ function Start-Broker {
         return
     }
 
-    $proc = Start-Process -FilePath $MosquittoExe -ArgumentList "-c `"$ConfigPath`" -v" -WindowStyle Minimized -PassThru
+    $proc = Start-Process -FilePath $MosquittoExe -ArgumentList "-c `"$ConfigPath`" -v" -WindowStyle Hidden -PassThru
     Write-Output "[MQTT] Start requested. PID=$($proc.Id)"
 
     # Wait briefly for the listener to appear, avoiding a false "Not running" right after start.

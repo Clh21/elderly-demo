@@ -9,14 +9,14 @@
 // ----- WiFi 设置 -----
 // 当前网络：电脑个人热点 (WPA2-Personal)
 // 如需改回企业 WiFi，把 USE_ENTERPRISE_WIFI 设 true 并填写 EAP 账号密码。
-static const char* WIFI_SSID     = "DESKTOP-027GF58 1239";
+static const char* WIFI_SSID     = "我劝你最好别连";
 static const bool  USE_ENTERPRISE_WIFI = false;
 static const char* WIFI_EAP_USERNAME   = "25104351g";
 static const char* WIFI_EAP_PASSWORD   = "Zhf@20030716zhf";
 static const char* WIFI_EAP_ANONYMOUS_IDENTITY = "";  // 通常留空
 
 // 普通家用 WiFi / 电脑热点密码
-static const char* WIFI_PASSWORD = "17C00w2/";
+static const char* WIFI_PASSWORD = "66666666";
 
 // ----- MQTT 设置 -----
 // 当前电脑 IP（运行 MQTT broker / Python 服务的那台电脑）
