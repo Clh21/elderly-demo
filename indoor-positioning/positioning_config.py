@@ -21,7 +21,7 @@ PATH_LOSS_EXPONENT = 2.0
 # - x axis: along the long side from anchor_02 to anchor_03 (length = 7.5 m)
 # - y axis: perpendicular to x axis toward anchor_01 direction (width = 4.0 m)
 # - Origin is placed at anchor_02 (front-left corner when looking into the room)
-# - All anchors are placed on chairs at 0.75 m height (2D model currently uses x/y only)
+# - All anchors are placed on chairs at 0.88 m height (2D model currently uses x/y only)
 # - tx_power values below are from a previous deployment; recalibrate each anchor
 #   at 1 m line-of-sight for best accuracy in this new room.
 ANCHORS = {
