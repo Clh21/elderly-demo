@@ -9,6 +9,8 @@ MQTT_PASSWORD = ""
 MQTT_RSSI_TOPIC = "indoor/ble/+/rssi"
 MQTT_POSITION_TOPIC = "indoor/location/target_01"
 MQTT_PRESSURE_TOPIC = "indoor/pressure/+/state"
+POSITIONING_WATCH_ID = "real-watch-001"
+PRELIMINARY_ALERT_TOPIC = "indoor/alert/preliminary"
 
 # RSSI to distance conversion (log-distance path loss model)
 # distance = 10 ^ ((tx_power - rssi) / (10 * n))
@@ -82,18 +84,29 @@ STRICT_INROOM_OUTPUT = True
 VISUAL_VIEW_TRANSFORM = "none"
 
 # Positioning loop behavior
-# Stability-first mode: use several synchronized frames while keeping updates under 10s.
-POSITION_UPDATE_INTERVAL_SEC = 2.0
-SNAPSHOT_WINDOW_SEC = 4.0
-MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 5
-MAX_READING_AGE_SEC = 7.0
+# MQTT data drives calculation directly. Four anchors use a short settle period;
+# three anchors wait briefly for the fourth before falling back.
+THREE_ANCHOR_FALLBACK_WAIT_SEC = 1.2
+# After all four anchors arrive, briefly collect the remaining MQTT messages
+# from the same ESP32 scan batch before solving.
+FOUR_ANCHOR_SETTLE_SEC = 0.15
+SNAPSHOT_WINDOW_SEC = 3.0
+MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 2
+MAX_READING_AGE_SEC = 4.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
 # each trilateration frame must use RSSI samples from the same beacon advertising slot.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 100
-MIN_SYNC_FRAMES_PER_UPDATE = 4
+MIN_SYNC_FRAMES_PER_UPDATE = 1
+
+# Keep strict packet-slot sync first, then use a short time-synchronized
+# three-anchor fallback when the current event batch reaches its deadline.
+USE_TIME_SYNC_FALLBACK_AFTER_RELAX = True
+RELAXED_ANCHOR_SYNC_WINDOW_SEC = 1.5
+USE_LATEST_SYNC_FRAME_ONLY = False
+MAX_SYNC_FRAME_AGE_SEC = 3.5
 
 # When anchors report time_source="local" (no internet NTP), relax the timestamp
 # span check because their millis() clocks are not globally synchronized.
@@ -120,6 +133,14 @@ USE_WEIGHTED_CENTROID_FALLBACK = True
 
 # Confidence scaling for residual/spread scoring.
 CONFIDENCE_ERROR_SCALE_M = 1.8
+# A three-anchor solution has no spare anchor for cross-checking.
+THREE_ANCHOR_CONFIDENCE_FACTOR = 0.8
+
+# Reject implausible low-confidence jumps before they enter smoothing.
+USE_LOW_CONFIDENCE_JUMP_GUARD = True
+LOW_CONFIDENCE_JUMP_THRESHOLD = 0.82
+LOW_CONFIDENCE_JUMP_BASE_M = 0.35
+LOW_CONFIDENCE_MAX_SPEED_MPS = 1.5
 
 # Clamp RSSI-derived distance to a reasonable range (meters).
 MIN_DISTANCE_M = 0.2
@@ -165,6 +186,13 @@ PRESSURE_FUSION_BLEND_WIDTH_M = 1.0
 USE_MOTION_STATE = True
 MOTION_STATE_THRESHOLD_M = 0.15
 MOTION_STATE_CONFIRM_UPDATES = 2
+
+# Prolonged-stillness warning. This is intentionally a warning rather than a
+# fall diagnosis; the backend/AI layer adds context and requests manual review.
+USE_PROLONGED_STILLNESS_ALERT = True
+PROLONGED_STILLNESS_DURATION_SEC = 30 * 60
+PROLONGED_STILLNESS_MIN_CONFIDENCE = 0.60
+PROLONGED_STILLNESS_COOLDOWN_SEC = 30 * 60
 
 # Print debug output for each location update
 VERBOSE_LOGGING = True

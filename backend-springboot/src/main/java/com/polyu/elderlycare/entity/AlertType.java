@@ -7,7 +7,7 @@ public enum AlertType {
     FALL_DETECTION("fall_detection"),
     WEAR_STATUS("wear_status"),
     DATA_GAP("data_gap"),
-    ABNORMAL_STILLNESS("abnormal_stillness"); // 新增 AI 长时静止判定类型
+    ABNORMAL_STILLNESS("abnormal_stillness");
 
     private final String value;
 

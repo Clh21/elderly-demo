@@ -45,6 +45,9 @@ Implemented:
 - legacy watch-reading ingestion API
 - ECG history APIs
 - metric-detail API
+- automatic daily health analysis API
+- ingestion-driven health alert evaluation with sustained-sample checks
+- MQTT bridge for AI-reviewed indoor alerts
 - demo startup seed and alert enum compatibility logic
 - global exception handling
 - database entity mapping for core tables
@@ -73,6 +76,26 @@ Config keys in `application.yml`:
 - `app.positioning.mqtt-client-id`
 - `app.positioning.mqtt-username`
 - `app.positioning.mqtt-password`
+
+## Daily health analysis and alerts
+
+- Daily analysis endpoint: `GET /api/watch/{watchId}/health-analysis?date=yyyy-MM-dd`
+- Omitting `date` analyzes the current local day.
+- The response always includes rule-based analysis. If `ZHIPU_API_KEY` is set,
+  the aggregate summary is additionally rewritten by GLM.
+- Health alerts are evaluated when watch data is ingested. Heart rate and
+  temperature require repeated abnormal readings; EDA requires a sustained
+  session instead of a single high sample.
+- Physiological readings are ignored while the latest explicit state says the
+  watch is not worn or charging.
+
+Optional AI environment variables:
+
+```powershell
+$env:ZHIPU_API_KEY="your-key"
+$env:ZHIPU_MODEL="glm-4-flash"
+$env:AI_ANALYSIS_ENABLED="true"
+```
 
 ## Run
 

@@ -7,6 +7,102 @@ $ErrorActionPreference = "Stop"
 
 $MosquittoExe = "C:\Program Files\Mosquitto\mosquitto.exe"
 $ConfigPath = Join-Path $PSScriptRoot "mosquitto.conf"
+$FirewallRuleName = "Elderly Demo MQTT 1883 Public"
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]$identity
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Test-FirewallRuleReady {
+    $output = netsh advfirewall firewall show rule name="$FirewallRuleName" verbose 2>$null | Out-String
+    return (
+        $output -match "Enabled:\s+Yes" -and
+        $output -match "Direction:\s+In" -and
+        $output -match "Profiles:\s+.*Public" -and
+        $output -match "Protocol:\s+TCP" -and
+        $output -match "LocalPort:\s+1883" -and
+        $output -match "Action:\s+Allow"
+    )
+}
+
+function Get-MosquittoBlockRuleOutput {
+    netsh advfirewall firewall show rule name="mosquitto" verbose 2>$null | Out-String
+}
+
+function Test-MosquittoBlockRulesEnabled {
+    $output = Get-MosquittoBlockRuleOutput
+    return (
+        $output -match "Enabled:\s+Yes" -and
+        $output -match "Action:\s+Block" -and
+        $output -match [regex]::Escape($MosquittoExe)
+    )
+}
+
+function Ensure-MosquittoIsNotBlocked {
+    if (-not (Test-MosquittoBlockRulesEnabled)) {
+        return
+    }
+
+    if (Test-IsAdministrator) {
+        netsh advfirewall firewall set rule name="mosquitto" new enable=no | Out-Null
+        Write-Output "[FW] Disabled Windows program-level block rule for mosquitto.exe."
+    } else {
+        Write-Output "[WARN] Windows has an enabled Public block rule for mosquitto.exe."
+        Write-Output "[WARN] Run this script as Administrator, or disable firewall rules named 'mosquitto'."
+    }
+}
+
+function Ensure-FirewallRule {
+    Ensure-MosquittoIsNotBlocked
+
+    if (Test-FirewallRuleReady) {
+        Write-Output "[FW] MQTT firewall rule is ready: $FirewallRuleName (Public TCP 1883)."
+        return
+    }
+
+    $rule = Get-NetFirewallRule -DisplayName $FirewallRuleName -ErrorAction SilentlyContinue |
+        Where-Object { $_.Direction -eq "Inbound" -and $_.Action -eq "Allow" } |
+        Select-Object -First 1
+
+    if ($rule) {
+        $portFilter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue |
+            Where-Object { $_.Protocol -eq "TCP" -and $_.LocalPort -eq "1883" } |
+            Select-Object -First 1
+        $profileText = [string]$rule.Profile
+        $profileOk = $profileText -like "*Public*"
+
+        if ($portFilter -and $profileOk -and $rule.Enabled -eq "True") {
+            Write-Output "[FW] MQTT firewall rule is ready: $FirewallRuleName ($profileText)."
+            return
+        }
+
+        if (Test-IsAdministrator) {
+            Set-NetFirewallRule -DisplayName $FirewallRuleName -Enabled True -Direction Inbound -Action Allow -Profile Public
+            Set-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -Protocol TCP -LocalPort 1883
+            Write-Output "[FW] Updated MQTT firewall rule to allow TCP 1883 on Public profile."
+        } else {
+            Write-Output "[WARN] MQTT firewall rule exists but only allows profile '$profileText'."
+            Write-Output "[WARN] Run this script as Administrator, or set '$FirewallRuleName' to Profile=Public."
+        }
+        return
+    }
+
+    if (Test-IsAdministrator) {
+        New-NetFirewallRule `
+            -DisplayName $FirewallRuleName `
+            -Direction Inbound `
+            -Action Allow `
+            -Protocol TCP `
+            -LocalPort 1883 `
+            -Profile Public | Out-Null
+        Write-Output "[FW] Created MQTT firewall rule for TCP 1883 on Public profile."
+    } else {
+        Write-Output "[WARN] MQTT firewall rule missing. ESP32 may fail with rc=-2 on Windows hotspot networks."
+        Write-Output "[WARN] Run this script as Administrator once to create '$FirewallRuleName'."
+    }
+}
 
 function Get-BrokerListeners {
     $listeners = Get-NetTCPConnection -LocalPort 1883 -State Listen -ErrorAction SilentlyContinue |
@@ -71,6 +167,8 @@ function Start-Broker {
     if (-not (Test-Path $ConfigPath)) {
         throw "Config file not found: $ConfigPath"
     }
+
+    Ensure-FirewallRule
 
     $listeners = Get-BrokerListeners
     if ($listeners) {

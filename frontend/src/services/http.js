@@ -1,4 +1,9 @@
-export const API_BASE_URL = 'http://localhost:3100/api';
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const browserHost = typeof window !== 'undefined' && window.location.hostname
+  ? window.location.hostname
+  : 'localhost';
+
+export const API_BASE_URL = configuredApiBaseUrl || `http://${browserHost}:3100/api`;
 export const SESSION_STORAGE_KEY = 'elderlycare-session';
 export const UNAUTHORIZED_EVENT = 'elderlycare:unauthorized';
 export const REQUEST_ID_HEADER = 'X-Request-Id';

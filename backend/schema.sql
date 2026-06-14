@@ -61,9 +61,9 @@ CREATE TABLE IF NOT EXISTS watch_readings (
 CREATE TABLE IF NOT EXISTS alerts (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   resident_id   INT           NOT NULL,
-  type          ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap') NOT NULL,
+  type          ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap','abnormal_stillness') NOT NULL,
   severity      ENUM('warning','critical') NOT NULL,
-  message       VARCHAR(255)  NOT NULL,
+  message       TEXT          NOT NULL,
   status        ENUM('active','resolved') DEFAULT 'active',
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   resolved_at   DATETIME,

@@ -2,140 +2,174 @@ package com.polyu.elderlycare.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.polyu.elderlycare.entity.Alert;
 import com.polyu.elderlycare.entity.AlertSeverity;
-import com.polyu.elderlycare.entity.AlertStatus;
 import com.polyu.elderlycare.entity.AlertType;
 import com.polyu.elderlycare.entity.Resident;
-import com.polyu.elderlycare.repository.AlertRepository;
 import com.polyu.elderlycare.repository.ResidentRepository;
+import com.polyu.elderlycare.repository.WatchDataRepository;
+import com.polyu.elderlycare.service.HealthMonitoringService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.eclipse.paho.client.mqttv3.IMqttClient;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.UUID;
 
 @Service
 public class AiAlertMqttBridge {
 
-    private static final Logger log = LoggerFactory.getLogger(AiAlertMqttBridge.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AiAlertMqttBridge.class);
+    private static final String CONFIRMED_TOPIC = "indoor/alert/confirmed";
 
-    private final AlertRepository alertRepository;
     private final ResidentRepository residentRepository;
+    private final WatchDataRepository watchDataRepository;
     private final ObjectMapper objectMapper;
-    private IMqttClient mqttClient;
 
-    // 假设你的 MQTT Broker 跑在本地，你可以把它提取到 application.yml 中
-    @Value("${mqtt.broker.url:tcp://127.0.0.1:1883}")
+    @Value("${app.ai-alert.enabled:true}")
+    private boolean enabled;
+
+    @Value("${app.ai-alert.mqtt-url:tcp://127.0.0.1:1883}")
     private String brokerUrl;
 
-    private static final String TOPIC_CONFIRMED = "indoor/alert/confirmed";
+    @Value("${app.ai-alert.default-watch-id:real-watch-001}")
+    private String defaultWatchId;
 
-    public AiAlertMqttBridge(AlertRepository alertRepository, ResidentRepository residentRepository) {
-        this.alertRepository = alertRepository;
+    private IMqttClient mqttClient;
+
+    public AiAlertMqttBridge(
+            ResidentRepository residentRepository,
+            WatchDataRepository watchDataRepository,
+            ObjectMapper objectMapper
+    ) {
         this.residentRepository = residentRepository;
-        this.objectMapper = new ObjectMapper();
+        this.watchDataRepository = watchDataRepository;
+        this.objectMapper = objectMapper;
     }
 
     @PostConstruct
     public void init() {
+        ensureConnected();
+    }
+
+    @Scheduled(initialDelay = 15_000, fixedDelay = 15_000)
+    public synchronized void ensureConnected() {
+        if (!enabled || mqttClient != null && mqttClient.isConnected()) {
+            return;
+        }
+
         try {
-            // 使用随机 ClientID 防止多个实例冲突
-            String clientId = "SpringBoot-AiBridge-" + UUID.randomUUID().toString().substring(0, 8);
+            closeClient();
+            String clientId = "elderlycare-ai-alert-" + UUID.randomUUID().toString().substring(0, 8);
             mqttClient = new MqttClient(brokerUrl, clientId, new MemoryPersistence());
 
             MqttConnectOptions options = new MqttConnectOptions();
             options.setAutomaticReconnect(true);
             options.setCleanSession(true);
-            options.setConnectionTimeout(10);
-
+            options.setConnectionTimeout(8);
             mqttClient.connect(options);
-            log.info("✅ AiAlertMqttBridge 成功连接到 MQTT Broker: {}", brokerUrl);
-
-            // 订阅 AI 确认过的报警主题
-            mqttClient.subscribe(TOPIC_CONFIRMED, (topic, msg) -> {
-                String payload = new String(msg.getPayload());
-                handleConfirmedAlert(payload);
-            });
-            log.info("📡 正在监听 AI 最终预警主题: {}", TOPIC_CONFIRMED);
-
-        } catch (Exception e) {
-            log.error("❌ AiAlertMqttBridge 初始化或连接 MQTT 失败: ", e);
+            mqttClient.subscribe(CONFIRMED_TOPIC, 1, (topic, message) ->
+                    handleConfirmedAlert(new String(message.getPayload(), StandardCharsets.UTF_8)));
+            LOGGER.info("AI alert bridge connected to {} and subscribed to {}", brokerUrl, CONFIRMED_TOPIC);
+        } catch (Exception ex) {
+            LOGGER.warn("AI alert bridge is waiting for MQTT broker {}: {}", brokerUrl, ex.getMessage());
         }
     }
 
-    @Transactional
     public void handleConfirmedAlert(String payload) {
         try {
-            log.info("🚨 接收到 AI 确认的警报数据: {}", payload);
             JsonNode json = objectMapper.readTree(payload);
-
-            // 1. 解析基础字段
-            // 注意：如果 JSON 传过来的 type 带有下划线或大小写不一致，转换为大写匹配 Enum
-            String rawType = json.has("type") ? json.get("type").asText().toUpperCase() : "FALL_DETECTION";
-            AlertType alertType;
-            try {
-                // 这里调用的是 AlertType.java 中原有的枚举匹配机制
-                alertType = AlertType.valueOf(rawType);
-            } catch (IllegalArgumentException e) {
-                // 如果遇到未知的类型，安全兜底为 FALL_DETECTION
-                alertType = AlertType.FALL_DETECTION; 
-            }
-
-            AlertSeverity severity = json.has("severity") ? 
-                    AlertSeverity.valueOf(json.get("severity").asText().toUpperCase()) : AlertSeverity.CRITICAL;
-            
-            String originalMsg = json.has("message") ? json.get("message").asText() : "检测到未知异常";
-
-            // 2. 提取 AI 独家分析结论
-            String aiAnalysis = json.has("ai_analysis") ? json.get("ai_analysis").asText() : "AI 护工已确认此异常真实有效。";
-
-            // 3. 核心设计：通过特殊标识符拼接 AI 结论，方便前端 React/Streamlit 切割渲染
-            String finalMessage = originalMsg + "\n\n💡【AI 深度评估】:" + aiAnalysis;
-
-            // 4. 绑定老人对象 (为了兼容测试环境，如果 Python 没传 resident_id，默认绑定给 ID = 1 的老人)
-            int residentId = json.has("resident_id") ? json.get("resident_id").asInt() : 1;
-            Resident resident = residentRepository.findById(residentId).orElse(null);
-            
+            Resident resident = resolveResident(json).orElse(null);
             if (resident == null) {
-                log.warn("⚠️ 找不到 ID={} 的 Resident，该条警报将被忽略。", residentId);
+                LOGGER.warn("Discarded AI alert without a known resident or watch: {}", payload);
                 return;
             }
 
-            // 5. 直接通过 Repository 存入数据库（绕过 Web 层的 Admin 鉴权）
-            Alert alert = new Alert();
-            alert.setResident(resident);
-            alert.setType(alertType);
-            alert.setSeverity(severity);
-            alert.setMessage(finalMessage);
-            alert.setStatus(AlertStatus.ACTIVE); // 新警报标记为未处理
-            
-            alertRepository.save(alert);
-            log.info("✅ 成功将 AI 警报落盘存入数据库！警报 ID: {}", alert.getId());
+            AlertType type = parseType(json.path("type").asText("fall_detection"));
+            AlertSeverity severity = parseSeverity(json.path("severity").asText("critical"));
+            String message = json.path("message").asText("An abnormal event was detected.").trim();
+            String analysis = json.path("ai_analysis").asText(
+                    "The event passed preliminary verification. Check the resident and nearby sensor context."
+            ).trim();
+            String finalMessage = message + HealthMonitoringService.ANALYSIS_MARKER + analysis;
 
-        } catch (Exception e) {
-            log.error("❌ 处理 MQTT AI 警报时发生严重异常: ", e);
+            Optional<Map<String, Object>> existing = watchDataRepository.findActiveAlertByType(
+                    resident.getId(),
+                    type.getValue()
+            );
+            if (existing.isEmpty()) {
+                watchDataRepository.createAlert(
+                        resident.getId(),
+                        type.getValue(),
+                        severity.getValue(),
+                        finalMessage
+                );
+                existing = watchDataRepository.findActiveAlertByType(resident.getId(), type.getValue());
+            }
+
+            if (existing.isPresent()) {
+                Integer alertId = ((Number) existing.get().get("id")).intValue();
+                watchDataRepository.updateAlert(alertId, severity.getValue(), finalMessage);
+                watchDataRepository.resolveDuplicateActiveAlerts(resident.getId(), type.getValue(), alertId);
+            }
+        } catch (Exception ex) {
+            LOGGER.error("Failed to store confirmed AI alert payload: {}", payload, ex);
+        }
+    }
+
+    private Optional<Resident> resolveResident(JsonNode json) {
+        if (json.hasNonNull("resident_id")) {
+            Optional<Resident> byId = residentRepository.findById(json.get("resident_id").asInt());
+            if (byId.isPresent()) {
+                return byId;
+            }
+        }
+        String watchId = json.path("watch_id").asText(defaultWatchId).trim();
+        return watchId.isEmpty() ? Optional.empty() : residentRepository.findByWatchId(watchId);
+    }
+
+    private AlertType parseType(String rawType) {
+        try {
+            return AlertType.fromValue(rawType);
+        } catch (IllegalArgumentException ex) {
+            return AlertType.FALL_DETECTION;
+        }
+    }
+
+    private AlertSeverity parseSeverity(String rawSeverity) {
+        try {
+            return AlertSeverity.fromValue(rawSeverity);
+        } catch (IllegalArgumentException ex) {
+            return AlertSeverity.CRITICAL;
         }
     }
 
     @PreDestroy
-    public void cleanup() {
+    public synchronized void cleanup() {
+        closeClient();
+    }
+
+    private void closeClient() {
+        if (mqttClient == null) {
+            return;
+        }
         try {
-            if (mqttClient != null && mqttClient.isConnected()) {
+            if (mqttClient.isConnected()) {
                 mqttClient.disconnect();
-                mqttClient.close();
             }
-        } catch (Exception e) {
-            log.error("关闭 MQTT 客户端出错: ", e);
+            mqttClient.close();
+        } catch (Exception ex) {
+            LOGGER.debug("Failed to close AI alert MQTT client cleanly: {}", ex.getMessage());
+        } finally {
+            mqttClient = null;
         }
     }
 }

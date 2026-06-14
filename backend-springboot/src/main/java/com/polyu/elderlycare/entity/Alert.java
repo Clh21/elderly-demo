@@ -35,7 +35,7 @@ public class Alert {
     @Column(nullable = false)
     private AlertSeverity severity;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String message;
 
     @Convert(converter = AlertStatusConverter.class)

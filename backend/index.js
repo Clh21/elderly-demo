@@ -28,13 +28,12 @@ const pool = mysql.createPool({
 const ensureAlertTypeEnum = async () => {
   const [rows] = await pool.query("SHOW COLUMNS FROM alerts LIKE 'type'");
   const columnType = rows[0]?.Type || '';
-  if (columnType.includes("'data_gap'")) {
-    return;
+  if (!columnType.includes("'abnormal_stillness'")) {
+    await pool.query(
+      "ALTER TABLE alerts MODIFY COLUMN type ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap','abnormal_stillness') NOT NULL"
+    );
   }
-
-  await pool.query(
-    "ALTER TABLE alerts MODIFY COLUMN type ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap') NOT NULL"
-  );
+  await pool.query("ALTER TABLE alerts MODIFY COLUMN message TEXT NOT NULL");
 };
 
 // ── helpers ─────────────────────────────────────────────────
@@ -1487,7 +1486,7 @@ app.post('/api/watch-reading', async (req, res) => {
 
 // ── POST /api/watch/:watchId/ai-analysis ──────────────────────
 app.post('/api/watch/:watchId/ai-analysis', async (req, res) => {
-  const apiKey = process.env.ZHIPU_API_KEY || req.headers['x-zhipu-api-key'] || 'f84f6de07a254ba3a894cf8c7f885a64.OCWflzxyHiU3WETe';
+  const apiKey = process.env.ZHIPU_API_KEY || req.headers['x-zhipu-api-key'];
   if (!apiKey) {
     return res.status(400).json({ error: 'Missing ZHIPU_API_KEY. Please provide it in backend/.env or headers.' });
   }

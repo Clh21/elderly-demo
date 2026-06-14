@@ -1,5 +1,6 @@
 param(
     [switch]$SkipBroker,
+    [switch]$SkipVisualizer,
     [switch]$StartSubscriber,
     [switch]$StartPressureSimulator
 )
@@ -7,6 +8,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = $PSScriptRoot
+$RuntimeDir = Join-Path $Root ".runtime"
+New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
+
 $pythonCandidates = @(
     (Join-Path $Root ".venv\Scripts\python.exe"),
     (Join-Path $Root "..\.venv\Scripts\python.exe"),
@@ -26,6 +30,20 @@ $BrokerScript = Join-Path $Root "mqtt_broker.ps1"
 function Get-ScriptProcess {
     param([string]$ScriptName)
 
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($ScriptName)
+    $pidPath = Join-Path $RuntimeDir "$processName.pid"
+    if (Test-Path $pidPath) {
+        $savedPid = 0
+        $rawPid = (Get-Content $pidPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ([int]::TryParse($rawPid, [ref]$savedPid)) {
+            $savedProcess = Get-Process -Id $savedPid -ErrorAction SilentlyContinue
+            if ($savedProcess) {
+                return $savedProcess
+            }
+        }
+        Remove-Item $pidPath -Force -ErrorAction SilentlyContinue
+    }
+
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*$ScriptName*" }
 }
@@ -44,16 +62,29 @@ function Start-ScriptIfNotRunning {
         return
     }
 
-    $argString = if ($ArgumentList) { "$ScriptName $ArgumentList" } else { $ScriptName }
-    Start-Process -FilePath $PythonExe -ArgumentList $argString -WorkingDirectory $Root -WindowStyle Normal | Out-Null
-    Write-Output "[START] $Label started in a separate window."
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($ScriptName)
+    $pidPath = Join-Path $RuntimeDir "$processName.pid"
+    $stdoutPath = Join-Path $RuntimeDir "$processName.out.log"
+    $stderrPath = Join-Path $RuntimeDir "$processName.err.log"
+    $argString = if ($ArgumentList) { "-u `"$ScriptName`" $ArgumentList" } else { "-u `"$ScriptName`"" }
+    $process = Start-Process `
+        -FilePath $PythonExe `
+        -ArgumentList $argString `
+        -WorkingDirectory $Root `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -PassThru
+    Set-Content -Path $pidPath -Value $process.Id
+    Write-Output "[START] $Label started. PID=$($process.Id)"
+    Write-Output "[LOG] $stdoutPath"
 }
 
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
     throw "Python not found: $PythonExe"
 }
 
-if (-not $SkipBroker) {indoor_positioning_server
+if (-not $SkipBroker) {
     if (Test-Path $BrokerScript) {
         Write-Output "[STEP] Ensuring MQTT broker is running..."
         & $BrokerScript start
@@ -65,8 +96,10 @@ if (-not $SkipBroker) {indoor_positioning_server
 Write-Output "[STEP] Starting positioning server..."
 Start-ScriptIfNotRunning -ScriptName "indoor_positioning_server.py" -Label "Positioning server"
 
-Write-Output "[STEP] Starting visualizer..."
-Start-ScriptIfNotRunning -ScriptName "indoor_position_visualizer.py" -Label "Position visualizer"
+if (-not $SkipVisualizer) {
+    Write-Output "[STEP] Starting visualizer..."
+    Start-ScriptIfNotRunning -ScriptName "indoor_position_visualizer.py" -Label "Position visualizer"
+}
 
 Write-Output "[STEP] Starting AI Alert Verification Worker..."
 Start-ScriptIfNotRunning -ScriptName "ai_alert_worker.py" -Label "AI Alert Worker"

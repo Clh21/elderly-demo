@@ -26,7 +26,7 @@ spring:
 
 app:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:8080
+    allowed-origin-patterns: "*"
   http-logging:
     enabled: true
     max-body-length: 4000
@@ -43,6 +43,15 @@ app:
       interval-ms: ${POSITIONING_SIMULATOR_INTERVAL_MS:2000}
   indoor-layout:
     storage-file: ${INDOOR_LAYOUT_STORAGE_FILE:./data/indoor-layout-active.json}
+  ai:
+    enabled: ${AI_ANALYSIS_ENABLED:true}
+    zhipu-api-key: ${ZHIPU_API_KEY:}
+    endpoint: ${ZHIPU_API_ENDPOINT:https://open.bigmodel.cn/api/paas/v4/chat/completions}
+    model: ${ZHIPU_MODEL:glm-4-flash}
+  ai-alert:
+    enabled: ${AI_ALERT_MQTT_ENABLED:true}
+    mqtt-url: ${AI_ALERT_MQTT_URL:tcp://127.0.0.1:1883}
+    default-watch-id: ${AI_ALERT_DEFAULT_WATCH_ID:real-watch-001}
   auth:
     token-ttl: 12h
     accounts:

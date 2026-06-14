@@ -83,12 +83,13 @@ python mqtt_test_subscriber.py
 
 ## 多节点部署（三边测量）
 
-三边测量需要 **至少3个 ESP32 锚点**。每个锚点用相同的代码，只需修改：
+三边测量需要 **至少3个 ESP32 锚点**；当前部署使用 4 个锚点，放在 7.5m x 4.0m 房间四角。每个锚点用相同的代码，只需修改：
 
 ```
 ESP32 #1: device_config.h -> BEACON_ID = "anchor_01", MQTT_CLIENT = "esp32_beacon_01"
 ESP32 #2: device_config.h -> BEACON_ID = "anchor_02", MQTT_CLIENT = "esp32_beacon_02"
 ESP32 #3: device_config.h -> BEACON_ID = "anchor_03", MQTT_CLIENT = "esp32_beacon_03"
+ESP32 #4: device_config.h -> BEACON_ID = "anchor_04", MQTT_CLIENT = "esp32_beacon_04"
 ```
 
 ## MQTT Topic 结构
@@ -102,7 +103,10 @@ indoor/
 │   ├── anchor_02/
 │   │   ├── rssi
 │   │   └── status
-│   └── anchor_03/
+│   ├── anchor_03/
+│   │   ├── rssi
+│   │   └── status
+│   └── anchor_04/
 │       ├── rssi
 │       └── status
 ├── pir/              # (后续扩展)
@@ -224,9 +228,10 @@ indoor/location/target_01
 
 ```python
 ANCHORS = {
-   "anchor_01": {"x": 0.0, "y": 0.0, "tx_power": -59.0},
-   "anchor_02": {"x": 4.0, "y": 0.0, "tx_power": -59.0},
-   "anchor_03": {"x": 0.0, "y": 4.0, "tx_power": -59.0},
+   "anchor_01": {"x": 0.0, "y": 4.0, "tx_power": -65.47},
+   "anchor_02": {"x": 0.0, "y": 0.0, "tx_power": -66.95},
+   "anchor_03": {"x": 7.5, "y": 0.0, "tx_power": -68.04},
+   "anchor_04": {"x": 7.5, "y": 4.0, "tx_power": -67.00},
 }
 
 PATH_LOSS_EXPONENT = 2.0
@@ -304,6 +309,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\stop_positioning_stack.ps1
 pip install -r requirements.txt
 ```
 
+如果需要使用智谱模型复核长时静止预警，在启动定位服务前设置：
+
+```powershell
+$env:ZHIPU_API_KEY="your-key"
+```
+
+没有配置密钥时，`ai_alert_worker.py` 会使用本地保守规则继续转发需要人工复核的预警，不会因为 AI 服务不可用而漏报。
+
 可选：一键启动时同时打开压力传感器模拟器（没有硬件时测试家具融合）：
 
 ```powershell
@@ -346,32 +359,38 @@ python position_point_sampler.py
 
 输出会给出 Mean、Median、Std，建议在报告中把 `Median` 作为该固定点坐标。
 
-### 锚点 tx_power 标定（强烈推荐）
+### 锚点 tx_power 与 path_loss_n 标定（强烈推荐）
 
 新增标定脚本：`tx_power_calibrator.py`
 
-用途：按锚点逐个估计 `tx_power`，避免使用信标标称值导致定位贴边和低置信度。
+用途：按锚点逐个测量多个距离，拟合该节点的 `tx_power` 和
+`path_loss_n`，避免使用固定经验值导致距离换算偏差。
 
 步骤（每个锚点都执行一次）：
 
-1. 把标签放在目标锚点前方 1.0m，尽量无遮挡。
-2. 保持 30~60 秒不动采样。
-3. 将脚本输出的 `suggested tx_power` 写回 `positioning_config.py` 的对应锚点。
+1. 保持手表和 ESP32 高度、朝向不变，测量两者之间的直线距离。
+2. 按脚本提示依次放到 1m、2m、3m、4m，每个点保持静止。
+3. 人不要站在手表和 ESP32 之间，尽量保持无遮挡。
+4. 将脚本最后输出的整行配置写回 `positioning_config.py`。
 
-示例：标定 anchor_01（45 秒）
+示例：标定 anchor_01，每个距离等待 4 秒后采样 20 秒：
 
 ```bash
-python tx_power_calibrator.py --anchor anchor_01 --duration 45 --distance 1.0
+python tx_power_calibrator.py --anchor anchor_01 --distances 1,2,3,4 --duration 20 --settle 4
 ```
 
 依次标定：
 
 ```bash
-python tx_power_calibrator.py --anchor anchor_02 --duration 45 --distance 1.0
-python tx_power_calibrator.py --anchor anchor_03 --duration 45 --distance 1.0
+python tx_power_calibrator.py --anchor anchor_02 --distances 1,2,3,4 --duration 20
+python tx_power_calibrator.py --anchor anchor_03 --distances 1,2,3,4 --duration 20
+python tx_power_calibrator.py --anchor anchor_04 --distances 1,2,3,4 --duration 20
 ```
 
 可选参数：
-- `--use-raw`：用原始 RSSI 标定（默认使用 filtered）
-- `--n`：指定路径损耗指数（默认读取 `positioning_config.py`）
-- `--min-samples`：最小样本数阈值（默认 15）
+- `--distances 1,2,3,4,5`：指定要测量的距离
+- `--field raw|filtered`：选择原始或 ESP32 滤波 RSSI，默认 `raw`
+- `--duration 30`：每个距离的正式采样秒数
+- `--settle 5`：移动手表后丢弃的稳定等待时间
+- `--output result.csv`：指定原始采样 CSV 文件
+- `--broker 192.168.137.1`：MQTT 不在本机时指定 Broker 地址

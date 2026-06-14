@@ -113,8 +113,8 @@ public class IndoorLayoutService {
             throw new IllegalArgumentException("Layout payload is required");
         }
 
-        double widthM = clampFinite(request.widthM(), MIN_ROOM_SIZE_M, MAX_ROOM_SIZE_M, 11.0);
-        double heightM = clampFinite(request.heightM(), MIN_ROOM_SIZE_M, MAX_ROOM_SIZE_M, 5.0);
+        double widthM = clampFinite(request.widthM(), MIN_ROOM_SIZE_M, MAX_ROOM_SIZE_M, 7.5);
+        double heightM = clampFinite(request.heightM(), MIN_ROOM_SIZE_M, MAX_ROOM_SIZE_M, 4.0);
 
         List<IndoorLayoutResponse.Zone> zones = new ArrayList<>();
         if (request.zones() != null) {
@@ -226,8 +226,8 @@ public class IndoorLayoutService {
         return new IndoorLayoutResponse(
                 "active-room",
                 "Demo Care Room",
-                11.0,
-                5.0,
+                7.5,
+                4.0,
                 List.of(
                         new IndoorLayoutResponse.Zone(
                                 "bedroom",
@@ -235,8 +235,8 @@ public class IndoorLayoutService {
                                 "bedroom",
                                 0.0,
                                 0.0,
-                                6.8,
-                                3.4,
+                                2.5,
+                                2.5,
                                 "#6366F1",
                                 "Main sleeping and resting area"
                         ),
@@ -245,9 +245,9 @@ public class IndoorLayoutService {
                                 "Toilet",
                                 "toilet",
                                 0.0,
-                                3.4,
-                                6.8,
-                                1.6,
+                                2.5,
+                                2.5,
+                                1.5,
                                 "#0EA5E9",
                                 "Toilet and hygiene area"
                         ),
@@ -255,10 +255,10 @@ public class IndoorLayoutService {
                                 "living_room",
                                 "Living Room",
                                 "living_room",
-                                6.8,
+                                2.5,
                                 0.0,
-                                4.2,
                                 5.0,
+                                4.0,
                                 "#F59E0B",
                                 "Living and activity area"
                         )
@@ -268,8 +268,8 @@ public class IndoorLayoutService {
                                 "bed-01",
                                 "Bed",
                                 "bed",
-                                0.6,
-                                0.5,
+                                1.0,
+                                1.0,
                                 2.2,
                                 1.2,
                                 0.0,
@@ -280,7 +280,7 @@ public class IndoorLayoutService {
                                 "sofa-01",
                                 "Sofa",
                                 "sofa",
-                                7.5,
+                                5.0,
                                 1.0,
                                 2.0,
                                 0.9,
@@ -293,7 +293,7 @@ public class IndoorLayoutService {
                                 "Toilet",
                                 "toilet",
                                 1.0,
-                                3.75,
+                                3.25,
                                 0.9,
                                 0.8,
                                 0.0,
@@ -305,8 +305,8 @@ public class IndoorLayoutService {
                         new IndoorLayoutResponse.Anchor(
                                 "anchor_01",
                                 0.0,
-                                5.0,
-                                1.0,
+                                4.0,
+                                0.75,
                                 -65.47,
                                 2.0,
                                 "indoor/ble/anchor_01/rssi",
@@ -316,7 +316,7 @@ public class IndoorLayoutService {
                                 "anchor_02",
                                 0.0,
                                 0.0,
-                                1.0,
+                                0.75,
                                 -66.95,
                                 2.0,
                                 "indoor/ble/anchor_02/rssi",
@@ -324,12 +324,22 @@ public class IndoorLayoutService {
                         ),
                         new IndoorLayoutResponse.Anchor(
                                 "anchor_03",
-                                11.0,
+                                7.5,
                                 0.0,
-                                1.0,
+                                0.75,
                                 -68.04,
                                 2.0,
                                 "indoor/ble/anchor_03/rssi",
+                                true
+                        ),
+                        new IndoorLayoutResponse.Anchor(
+                                "anchor_04",
+                                7.5,
+                                4.0,
+                                0.75,
+                                -67.00,
+                                2.0,
+                                "indoor/ble/anchor_04/rssi",
                                 true
                         )
                 ),

@@ -4,6 +4,19 @@ import { AlertTriangle, Clock, CheckCircle, XCircle, Filter, Trash2, Sparkles } 
 import { useAuth } from '../context/AuthContext';
 import { clearAlerts, fetchAlerts, resolveAlert } from '../services/api';
 
+const splitAlertMessage = (message) => {
+  const text = message || '';
+  const marker = '[AI Analysis]:';
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) {
+    return { baseMessage: text, aiMessage: null };
+  }
+  return {
+    baseMessage: text.slice(0, markerIndex).trim(),
+    aiMessage: text.slice(markerIndex + marker.length).trim(),
+  };
+};
+
 const Alerts = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -214,22 +227,11 @@ const Alerts = () => {
         {/* Alerts List */}
         <div className="space-y-4">
           {filteredAlerts.map((alert) => {
-            // ==========================================
-            // 【新增逻辑】识别并分离 AI 的深度评估文本
-            // ==========================================
-            const messageStr = alert.message || '';
-            const isAiVerified = messageStr.includes("💡【AI 深度评估】:");
-            let baseMsg = messageStr;
-            let aiMsg = null;
-
-            if (isAiVerified) {
-              const parts = messageStr.split("💡【AI 深度评估】:");
-              baseMsg = parts[0].trim();
-              aiMsg = parts[1].trim();
-            }
+            const { baseMessage: baseMsg, aiMessage: aiMsg } = splitAlertMessage(alert.message);
+            const isAiVerified = Boolean(aiMsg);
 
             return (
-              <div key={alert.id} className={`bg-white rounded-lg shadow-sm border ${alert.severity === 'CRITICAL' ? 'border-red-200' : 'border-gray-200'} p-6 hover:shadow-md transition-shadow`}>
+              <div key={alert.id} className={`bg-white rounded-lg shadow-sm border ${alert.severity?.toLowerCase() === 'critical' ? 'border-red-200' : 'border-gray-200'} p-6 hover:shadow-md transition-shadow`}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4 flex-1">
                     {getSeverityIcon(alert.severity)}
@@ -245,9 +247,6 @@ const Alerts = () => {
                       {/* 渲染基础警报描述 (保留换行符) */}
                       <p className="text-gray-700 mb-3 whitespace-pre-wrap">{baseMsg}</p>
 
-                      {/* ========================================== */}
-                      {/* 【新增UI】专属 AI 气泡组件，利用 Tailwind 样式 */}
-                      {/* ========================================== */}
                       {isAiVerified && (
                         <div className="mb-4 bg-indigo-50 border border-indigo-100 rounded-lg p-4 flex gap-3 shadow-inner">
                           <div className="mt-0.5 bg-white p-1 rounded-full shadow-sm h-fit">
@@ -255,9 +254,9 @@ const Alerts = () => {
                           </div>
                           <div>
                             <h4 className="text-sm font-bold text-indigo-900 mb-1 flex items-center gap-2">
-                              AI 守护助手深度复核
+                              Alert context analysis
                               <span className="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">
-                                Verified
+                                Reviewed
                               </span>
                             </h4>
                             <p className="text-sm text-indigo-800 leading-relaxed">

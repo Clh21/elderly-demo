@@ -29,6 +29,7 @@ MQTT_PORT = 1883
 TOPICS = [
     ("indoor/ble/+/rssi", 0),    # 所有锚点的 RSSI 数据
     ("indoor/ble/+/status", 0),  # 所有锚点的状态
+    ("indoor/location/target_01", 0),  # Python 定位输出
     ("indoor/pir/+/event", 0),   # (预留) PIR 传感器事件
     ("indoor/pressure/+/state", 0),  # (预留) 压力传感器状态
 ]
@@ -81,9 +82,20 @@ def on_message(client, userdata, msg):
     elif "/status" in topic:
         anchor = payload.get("anchor", "?")
         online = payload.get("online", False)
-        status = "上线 ✓" if online else "离线 ✗"
+        status = "online OK" if online else "offline"
         uptime = payload.get("uptime", 0)
         print(f"[{timestamp}] 状态 | {anchor} | {status} | uptime={uptime}s")
+
+    elif "/location/" in topic:
+        x = payload.get("x", "?")
+        y = payload.get("y", "?")
+        confidence = payload.get("confidence", "?")
+        solver = payload.get("solver", "?")
+        anchors = payload.get("anchors_used", [])
+        print(
+            f"[{timestamp}] 位置 | x={x} m | y={y} m | "
+            f"conf={confidence} | solver={solver} | anchors={anchors}"
+        )
 
     elif "/pir/" in topic:
         print(f"[{timestamp}] PIR  | {topic} | {payload}")

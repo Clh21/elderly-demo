@@ -1,6 +1,7 @@
 import { API_BASE_URL, apiFetch, extractErrorMessage } from './http';
 
 const POSITION_UPDATE_EVENT = 'position-update';
+const CONNECTED_EVENT = 'connected';
 
 const parseEventPayload = (rawData) => {
   if (!rawData) {
@@ -32,11 +33,12 @@ export const fetchLatestIndoorPosition = async () => {
  *
  * @param {string} token session token used as access_token query parameter
  * @param {object} callbacks stream callbacks
+ * @param {() => void} callbacks.onConnected called when the SSE stream connects
  * @param {(payload: object) => void} callbacks.onUpdate called for each position update
  * @param {() => void} callbacks.onError called when the stream reports an error
  * @returns {() => void} cleanup function that closes the stream
  */
-export const openIndoorPositionStream = (token, { onUpdate, onError } = {}) => {
+export const openIndoorPositionStream = (token, { onConnected, onUpdate, onError } = {}) => {
   if (typeof window === 'undefined' || typeof window.EventSource === 'undefined' || !token) {
     return () => {};
   }
@@ -55,11 +57,18 @@ export const openIndoorPositionStream = (token, { onUpdate, onError } = {}) => {
     onError?.();
   };
 
+  const handleConnected = () => {
+    onConnected?.();
+  };
+
+  stream.onopen = handleConnected;
   stream.addEventListener(POSITION_UPDATE_EVENT, handleUpdate);
+  stream.addEventListener(CONNECTED_EVENT, handleConnected);
   stream.onerror = handleError;
 
   return () => {
     stream.removeEventListener(POSITION_UPDATE_EVENT, handleUpdate);
+    stream.removeEventListener(CONNECTED_EVENT, handleConnected);
     stream.close();
   };
 };

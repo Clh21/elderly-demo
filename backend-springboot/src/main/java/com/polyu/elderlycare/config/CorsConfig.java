@@ -12,8 +12,8 @@ public class CorsConfig implements WebMvcConfigurer {
 
     private final AuthInterceptor authInterceptor;
 
-    @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:8080}")
-    private String[] allowedOrigins;
+    @Value("${app.cors.allowed-origin-patterns:*}")
+    private String[] allowedOriginPatterns;
 
     public CorsConfig(AuthInterceptor authInterceptor) {
         this.authInterceptor = authInterceptor;
@@ -22,7 +22,7 @@ public class CorsConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-            .allowedOrigins(allowedOrigins)
+                .allowedOriginPatterns(allowedOriginPatterns)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(false);

@@ -113,6 +113,9 @@ const IndoorPosition = () => {
     }
 
     const closeStream = openIndoorPositionStream(token, {
+      onConnected: () => {
+        setStreamConnected(true);
+      },
       onUpdate: (payload) => {
         const normalized = normalizeIndoorPositionPayload(payload, layout);
         if (!normalized) {

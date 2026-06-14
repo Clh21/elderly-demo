@@ -45,15 +45,15 @@ export const fetchEcgHistory = async (watchId, page = 1, pageSize = 10) => {
 };
 
 /**
- * Fetches AI analysis for the recent 24h data.
+ * Fetches the daily health analysis for a watch.
  *
  * @param {string} watchId watch id to query
- * @param {string} apiKey Zhipu API key
- * @returns {Promise<object>} AI analysis result
+ * @param {string} date local date in yyyy-MM-dd format
+ * @returns {Promise<object>} daily analysis result
  */
-export const fetchAiAnalysis = async (watchId, apiKey) => {
-  const headers = apiKey ? { 'x-zhipu-api-key': apiKey } : {};
-  const response = await apiFetch(`/watch/${watchId}/ai-analysis`, { method: 'POST', headers });
+export const fetchAiAnalysis = async (watchId, date) => {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const response = await apiFetch(`/watch/${watchId}/health-analysis${query}`);
   return parseJson(response, 'Failed to fetch AI analysis');
 };
 

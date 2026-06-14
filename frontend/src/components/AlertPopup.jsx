@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, XCircle, Heart, Thermometer, Activity, Watch } from 'lucide-react';
+import { X, XCircle, Heart, Thermometer, Activity, Watch, Sparkles } from 'lucide-react';
 
 const typeConfig = {
   heart_rate: {
@@ -44,6 +44,13 @@ const typeConfig = {
     border: 'border-gray-200',
     label: 'Wear Status Alert',
   },
+  abnormal_stillness: {
+    icon: Activity,
+    color: 'text-red-600',
+    bg: 'bg-red-50',
+    border: 'border-red-300',
+    label: 'Prolonged Stillness',
+  },
 };
 
 const severityConfig = {
@@ -67,6 +74,14 @@ const AlertPopup = ({ alerts, onClose, onClearAll, isClearing = false }) => {
   const type = typeConfig[alert.type] || typeConfig.heart_rate;
   const severity = severityConfig[alert.severity] || severityConfig.warning;
   const Icon = type.icon;
+  const marker = '[AI Analysis]:';
+  const markerIndex = (alert.message || '').indexOf(marker);
+  const baseMessage = markerIndex >= 0
+    ? alert.message.slice(0, markerIndex).trim()
+    : alert.message;
+  const analysis = markerIndex >= 0
+    ? alert.message.slice(markerIndex + marker.length).trim()
+    : null;
 
   const formatTime = (ts) => {
     return new Date(ts).toLocaleTimeString('en-US', {
@@ -113,8 +128,17 @@ const AlertPopup = ({ alerts, onClose, onClearAll, isClearing = false }) => {
           </div>
           <div className="mb-4">
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Message</p>
-            <p className="text-gray-800 text-sm leading-relaxed">{alert.message}</p>
+            <p className="text-gray-800 text-sm leading-relaxed">{baseMessage}</p>
           </div>
+          {analysis ? (
+            <div className="mb-4 flex gap-2 rounded-lg border border-cyan-100 bg-cyan-50 p-3">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" />
+              <div>
+                <div className="text-xs font-semibold uppercase text-cyan-800">Context analysis</div>
+                <p className="mt-1 text-sm leading-relaxed text-cyan-900">{analysis}</p>
+              </div>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between text-xs text-gray-400 border-t border-gray-100 pt-3">
             <span>Alert #{alert.id}</span>
             <span>{formatTime(alert.timestamp)}</span>

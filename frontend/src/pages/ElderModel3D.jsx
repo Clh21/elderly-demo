@@ -78,6 +78,9 @@ const ElderModel3D = () => {
     }
 
     const closeStream = openIndoorPositionStream(token, {
+      onConnected: () => {
+        setStreamConnected(true);
+      },
       onUpdate: (payload) => {
         const normalized = normalizeIndoorPositionPayload(payload, layout);
         if (!normalized) {

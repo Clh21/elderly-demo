@@ -1,5 +1,6 @@
 param(
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$SkipPositioning
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +9,8 @@ function Ensure-DbEnvironment {
     if (-not $env:DB_HOST) { $env:DB_HOST = "localhost" }
     if (-not $env:DB_PORT) { $env:DB_PORT = "3306" }
     if (-not $env:DB_NAME) { $env:DB_NAME = "elderly" }
-    if (-not $env:DB_USERNAME) { $env:DB_USERNAME = "elderly_app" }
-    if (-not $env:DB_PASSWORD) { $env:DB_PASSWORD = "Elderly@123456" }
+    if (-not $env:DB_USERNAME) { $env:DB_USERNAME = "elderlyservice" }
+    if (-not $env:DB_PASSWORD) { $env:DB_PASSWORD = "D1aoX0137" }
 }
 
 function Ensure-LocalMySql {
@@ -27,11 +28,12 @@ function Ensure-LocalMySql {
         return
     }
 
-    $service = Get-Service -Name "MySQL84" -ErrorAction SilentlyContinue
+    $service = Get-Service -Name "MySQL84", "MySQL80" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if ($service) {
         if ($service.Status -ne "Running") {
-            Start-Service -Name "MySQL84"
-            Write-Output "[DB] Started MySQL84 service."
+            Start-Service -Name $service.Name
+            Write-Output "[DB] Started $($service.Name) service."
         }
     } else {
         $mysqld = "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe"
@@ -48,12 +50,25 @@ function Ensure-LocalMySql {
     }
 }
 
+function Ensure-PositioningStack {
+    $projectRoot = Split-Path $PSScriptRoot -Parent
+    $positioningScript = Join-Path $projectRoot "indoor-positioning\start_positioning_stack.ps1"
+    if (-not (Test-Path $positioningScript)) {
+        Write-Output "[WARN] Positioning startup script not found: $positioningScript"
+        return
+    }
+
+    Write-Output "[POSITION] Ensuring MQTT broker and positioning server are running..."
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $positioningScript -SkipVisualizer
+}
+
 function Resolve-JavaHome {
     if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
         return $env:JAVA_HOME
     }
 
     $candidates = @(
+        "C:\Program Files\Java\jdk-17.0.2",
         "C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot",
         "C:\Program Files\Eclipse Adoptium\jdk-17.0.18-hotspot",
         "C:\Program Files\Eclipse Adoptium\jdk-17-hotspot"
@@ -80,6 +95,11 @@ function Resolve-JavaHome {
 function Resolve-MavenHome {
     if ($env:MAVEN_HOME -and (Test-Path (Join-Path $env:MAVEN_HOME "bin\mvn.cmd"))) {
         return $env:MAVEN_HOME
+    }
+
+    $intellijMaven = "E:\IntelliJ IDEA 2023.2.5\plugins\maven\lib\maven3"
+    if (Test-Path (Join-Path $intellijMaven "bin\mvn.cmd")) {
+        return $intellijMaven
     }
 
     $default = Join-Path $env:USERPROFILE "tools\apache-maven-3.9.9"
@@ -126,6 +146,10 @@ if ($CheckOnly) {
     mvn -version
     Write-Output "[OK] Java and Maven are ready."
     exit 0
+}
+
+if (-not $SkipPositioning) {
+    Ensure-PositioningStack
 }
 
 Set-Location $PSScriptRoot

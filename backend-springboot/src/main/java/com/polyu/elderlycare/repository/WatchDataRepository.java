@@ -1,6 +1,7 @@
 package com.polyu.elderlycare.repository;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,17 @@ public class WatchDataRepository {
 
     public Optional<Integer> findResidentIdByWatchId(String watchId) {
         return findResidentByWatchId(watchId).map(row -> ((Number) row.get("id")).intValue());
+    }
+
+    public List<Map<String, Object>> findMonitoredResidents() {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT id, watch_id
+                FROM residents
+                WHERE status IN ('active', 'demo')
+                ORDER BY id
+                """
+        );
     }
 
     public Optional<Map<String, Object>> findLatestMinuteReading(String watchId) {
@@ -191,6 +203,201 @@ public class WatchDataRepository {
                 ORDER BY minute_slot DESC LIMIT 1
                 """,
                 watchId
+        );
+    }
+
+    public Optional<Map<String, Object>> findLatestExplicitWearState(String watchId) {
+        return firstRow(
+                """
+                SELECT wear_status, is_charging, charge_source, battery_level_percent,
+                       recorded_at, source_timestamp
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND event_type = 'wear_state'
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                watchId
+        );
+    }
+
+    public Optional<Map<String, Object>> findLatestPowerState(String watchId) {
+        return firstRow(
+                """
+                SELECT is_charging, charge_source, battery_level_percent,
+                       recorded_at, source_timestamp
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND event_type = 'power_state'
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                watchId
+        );
+    }
+
+    public Optional<Map<String, Object>> findLatestWatchReadingTime(String watchId) {
+        return firstRow(
+                """
+                SELECT recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                watchId
+        );
+    }
+
+    public List<Map<String, Object>> findRecentHeartRateReadings(String watchId, LocalDateTime cutoff) {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT heart_rate, heart_rate_status, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND heart_rate IS NOT NULL
+                  AND recorded_at >= ?
+                ORDER BY recorded_at DESC
+                LIMIT 6
+                """,
+                watchId,
+                Timestamp.valueOf(cutoff)
+        );
+    }
+
+    public List<Map<String, Object>> findRecentTemperatureReadings(String watchId, LocalDateTime cutoff) {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT COALESCE(body_temperature, temperature) AS body_temperature,
+                       temperature_status, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND COALESCE(body_temperature, temperature) IS NOT NULL
+                  AND recorded_at >= ?
+                ORDER BY recorded_at DESC
+                LIMIT 4
+                """,
+                watchId,
+                Timestamp.valueOf(cutoff)
+        );
+    }
+
+    public List<Map<String, Object>> findRecentEdaReadings(String watchId, LocalDateTime cutoff) {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT eda, eda_label, eda_valid_sample_count, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND eda IS NOT NULL
+                  AND recorded_at >= ?
+                ORDER BY recorded_at ASC
+                """,
+                watchId,
+                Timestamp.valueOf(cutoff)
+        );
+    }
+
+    public List<Map<String, Object>> findDailyRawReadings(String watchId, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return jdbcTemplate.queryForList(
+                """
+                SELECT sensor_type, event_type, source_timestamp, heart_rate, heart_rate_status,
+                       COALESCE(body_temperature, temperature) AS body_temperature,
+                       wrist_temperature, ambient_temperature, temperature_status,
+                       eda, eda_label, eda_valid_sample_count, wear_status, is_charging,
+                       charge_source, battery_level_percent, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND recorded_at >= ?
+                  AND recorded_at < ?
+                ORDER BY recorded_at ASC, id ASC
+                """,
+                watchId,
+                Timestamp.valueOf(start),
+                Timestamp.valueOf(end)
+        );
+    }
+
+    public List<Map<String, Object>> findDailyMinuteReadings(String watchId, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return jdbcTemplate.queryForList(
+                """
+                SELECT minute_slot, heart_rate, COALESCE(body_temperature, temperature) AS body_temperature,
+                       eda, eda_label, eda_valid_sample_count, wear_status, is_charging
+                FROM minute_readings
+                WHERE watch_id = ?
+                  AND minute_slot >= ?
+                  AND minute_slot < ?
+                ORDER BY minute_slot ASC
+                """,
+                watchId,
+                Timestamp.valueOf(start),
+                Timestamp.valueOf(end)
+        );
+    }
+
+    public Optional<Map<String, Object>> findLatestWearStateBefore(String watchId, LocalDateTime before) {
+        return firstRow(
+                """
+                SELECT wear_status, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND event_type = 'wear_state'
+                  AND recorded_at < ?
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                watchId,
+                Timestamp.valueOf(before)
+        );
+    }
+
+    public Optional<Map<String, Object>> findLatestPowerStateBefore(String watchId, LocalDateTime before) {
+        return firstRow(
+                """
+                SELECT is_charging, recorded_at
+                FROM watch_readings
+                WHERE watch_id = ?
+                  AND event_type = 'power_state'
+                  AND recorded_at < ?
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                watchId,
+                Timestamp.valueOf(before)
+        );
+    }
+
+    public Optional<String> findLatestAvailableReadingDate(String watchId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                """
+                SELECT DATE_FORMAT(MAX(recorded_at), '%Y-%m-%d') AS latest_date
+                FROM watch_readings
+                WHERE watch_id = ?
+                """,
+                watchId
+        );
+        if (rows.isEmpty() || rows.get(0).get("latest_date") == null) {
+            return Optional.empty();
+        }
+        return Optional.of(rows.get(0).get("latest_date").toString());
+    }
+
+    public List<Map<String, Object>> findAlertsForDay(Integer residentId, LocalDate date) {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT id, type, severity, status, message, created_at, resolved_at
+                FROM alerts
+                WHERE resident_id = ?
+                  AND created_at >= ?
+                  AND created_at < ?
+                ORDER BY created_at ASC
+                """,
+                residentId,
+                Timestamp.valueOf(date.atStartOfDay()),
+                Timestamp.valueOf(date.plusDays(1).atStartOfDay())
         );
     }
 
@@ -422,10 +629,18 @@ public class WatchDataRepository {
         );
     }
 
-    public Optional<Map<String, Object>> findActiveAlert(Integer residentId, String type, String message) {
+    public Optional<Map<String, Object>> findActiveAlertByType(Integer residentId, String type) {
         return firstRow(
-                "SELECT id, severity FROM alerts WHERE resident_id = ? AND type = ? AND message = ? AND status = 'active' LIMIT 1",
-                residentId, type, message
+                """
+                SELECT id, severity, message
+                FROM alerts
+                WHERE resident_id = ?
+                  AND type = ?
+                  AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                residentId, type
         );
     }
 
@@ -436,10 +651,10 @@ public class WatchDataRepository {
         );
     }
 
-    public void updateAlertSeverity(Integer id, String severity) {
+    public void updateAlert(Integer id, String severity, String message) {
         jdbcTemplate.update(
-                "UPDATE alerts SET severity = ? WHERE id = ?",
-                severity, id
+                "UPDATE alerts SET severity = ?, message = ? WHERE id = ?",
+                severity, message, id
         );
     }
 
@@ -450,14 +665,48 @@ public class WatchDataRepository {
         );
     }
 
+    public void resolveActiveAlertsByType(Integer residentId, String type) {
+        jdbcTemplate.update(
+                """
+                UPDATE alerts
+                SET status = 'resolved', resolved_at = NOW()
+                WHERE resident_id = ?
+                  AND type = ?
+                  AND status = 'active'
+                """,
+                residentId, type
+        );
+    }
+
+    public void resolveDuplicateActiveAlerts(Integer residentId, String type, Integer keepId) {
+        jdbcTemplate.update(
+                """
+                UPDATE alerts
+                SET status = 'resolved', resolved_at = NOW()
+                WHERE resident_id = ?
+                  AND type = ?
+                  AND status = 'active'
+                  AND id <> ?
+                """,
+                residentId, type, keepId
+        );
+    }
+
     public void ensureAlertTypeEnum() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("SHOW COLUMNS FROM alerts LIKE 'type'");
         String columnType = rows.isEmpty() || rows.get(0).get("Type") == null ? "" : rows.get(0).get("Type").toString();
-        if (!columnType.contains("'data_gap'")) {
+        if (!columnType.contains("'abnormal_stillness'")) {
             jdbcTemplate.update(
-                    "ALTER TABLE alerts MODIFY COLUMN type ENUM('heart_rate','temperature','eda','fall_detection','wear_status','data_gap') NOT NULL"
+                    """
+                    ALTER TABLE alerts
+                    MODIFY COLUMN type ENUM(
+                        'heart_rate','temperature','eda','fall_detection',
+                        'wear_status','data_gap','abnormal_stillness'
+                    ) NOT NULL
+                    """
             );
         }
+        jdbcTemplate.update("ALTER TABLE alerts MODIFY COLUMN message TEXT NOT NULL");
     }
 
     public void seedDemoMinuteReading(Integer residentId, String slot, double heartRate, double temperature, double eda) {

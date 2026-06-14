@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polyu.elderlycare.auth.AccessScopeService;
 import com.polyu.elderlycare.exception.ResourceNotFoundException;
 import com.polyu.elderlycare.repository.WatchDataRepository;
+import com.polyu.elderlycare.service.HealthMonitoringService;
 import com.polyu.elderlycare.service.WatchService;
 import com.polyu.elderlycare.service.WatchUpdateStreamService;
 import java.math.BigDecimal;
@@ -33,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WatchServiceImpl implements WatchService {
 
-    private static final long ONE_HOUR_MS = 60L * 60L * 1000L;
     private static final DateTimeFormatter MINUTE_LABEL_FORMATTER = DateTimeFormatter.ofPattern("hh:mm a", Locale.US);
     private static final DateTimeFormatter SECOND_LABEL_FORMATTER = DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.US);
     private static final DateTimeFormatter DAY_OPTION_FORMATTER = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US);
@@ -81,6 +81,7 @@ public class WatchServiceImpl implements WatchService {
     private final WatchDataRepository watchDataRepository;
     private final ObjectMapper objectMapper;
     private final AccessScopeService accessScopeService;
+    private final HealthMonitoringService healthMonitoringService;
     private final WatchUpdateStreamService watchUpdateStreamService;
     private volatile boolean edaBaselineStorageReady = false;
 
@@ -88,11 +89,13 @@ public class WatchServiceImpl implements WatchService {
             WatchDataRepository watchDataRepository,
             ObjectMapper objectMapper,
             AccessScopeService accessScopeService,
+            HealthMonitoringService healthMonitoringService,
             WatchUpdateStreamService watchUpdateStreamService
     ) {
         this.watchDataRepository = watchDataRepository;
         this.objectMapper = objectMapper;
         this.accessScopeService = accessScopeService;
+        this.healthMonitoringService = healthMonitoringService;
         this.watchUpdateStreamService = watchUpdateStreamService;
     }
 
@@ -120,7 +123,8 @@ public class WatchServiceImpl implements WatchService {
         Map<String, Object> latestHeartRate = watchDataRepository.findLatestHeartRate(watchId).orElse(null);
         Map<String, Object> latestTemperature = watchDataRepository.findLatestTemperature(watchId).orElse(null);
         Map<String, Object> latestEda = watchDataRepository.findLatestEda(watchId).orElse(null);
-        Map<String, Object> latestWear = watchDataRepository.findLatestWear(watchId).orElse(null);
+        Map<String, Object> latestWear = watchDataRepository.findLatestExplicitWearState(watchId).orElse(null);
+        Map<String, Object> latestPower = watchDataRepository.findLatestPowerState(watchId).orElse(null);
         Map<String, Object> latestEcg = watchDataRepository.findLatestEcg(watchId).orElse(null);
 
         Double heartRate = toDouble(valueOf(latestHeartRate, "heart_rate"));
@@ -139,13 +143,21 @@ public class WatchServiceImpl implements WatchService {
                 asString(row.get("wear_status")),
                 "unknown"
         );
-        Boolean isCharging = valueOf(latestWear, "is_charging") != null
+        Boolean isCharging = valueOf(latestPower, "is_charging") != null
+                ? toBoolean(valueOf(latestPower, "is_charging"))
+                : (valueOf(latestWear, "is_charging") != null
                 ? toBoolean(valueOf(latestWear, "is_charging"))
-                : (row.get("is_charging") == null ? null : toBoolean(row.get("is_charging")));
-        String chargeSource = firstNonNull(asString(valueOf(latestWear, "charge_source")), asString(row.get("charge_source")));
-        Integer batteryLevelPercent = valueOf(latestWear, "battery_level_percent") != null
+                : (row.get("is_charging") == null ? null : toBoolean(row.get("is_charging"))));
+        String chargeSource = firstNonNull(
+                asString(valueOf(latestPower, "charge_source")),
+                asString(valueOf(latestWear, "charge_source")),
+                asString(row.get("charge_source"))
+        );
+        Integer batteryLevelPercent = valueOf(latestPower, "battery_level_percent") != null
+                ? toInteger(valueOf(latestPower, "battery_level_percent"))
+                : (valueOf(latestWear, "battery_level_percent") != null
                 ? toInteger(valueOf(latestWear, "battery_level_percent"))
-                : toInteger(row.get("battery_level_percent"));
+                : toInteger(row.get("battery_level_percent")));
         WearStatePresentation wearPresentation = getWearStatePresentation(wearStatus, Boolean.TRUE.equals(isCharging));
 
         Map<String, Object> ecgSummary = buildEcgResponseFromRow(latestEcg, true);
@@ -164,48 +176,6 @@ public class WatchServiceImpl implements WatchService {
                 .toList();
 
         String temperatureCardStatus = getTemperatureStatus(bodyTemperature);
-        Integer residentId = residentRow.map(current -> toInteger(current.get("id"))).orElse(null);
-        if (residentId != null) {
-            Object latestDataTimestamp = row.get("minute_slot");
-            Object latestWearTimestamp = firstNonNull(valueOf(latestWear, "minute_slot"), row.get("minute_slot"));
-            boolean noRecentDataAlert = !Boolean.TRUE.equals(isCharging) && !isRecentWithinHour(latestDataTimestamp);
-            boolean notWornAlert = !Boolean.TRUE.equals(isCharging) && "not_worn".equals(wearStatus) && !isRecentWithinHour(latestWearTimestamp);
-            boolean lowHeartRateAlert = heartRate != null && heartRate < 50;
-            boolean highHeartRateAlert = heartRate != null && heartRate > 100;
-            boolean lowHeartRateCritical = heartRate != null && heartRate < 45;
-            boolean highHeartRateCritical = heartRate != null && heartRate > 120;
-            boolean lowTemperatureAlert = bodyTemperature != null && bodyTemperature <= ESTIMATED_BODY_TEMP_WARNING_LOW_C;
-            boolean highTemperatureAlert = bodyTemperature != null && bodyTemperature >= ESTIMATED_BODY_TEMP_WARNING_HIGH_C;
-            boolean lowTemperatureCritical = bodyTemperature != null && bodyTemperature <= ESTIMATED_BODY_TEMP_CRITICAL_LOW_C;
-            boolean highTemperatureCritical = bodyTemperature != null && bodyTemperature >= ESTIMATED_BODY_TEMP_CRITICAL_HIGH_C;
-            boolean edaStressAlert = edaInterpretation.stateLevel() != null && edaInterpretation.stateLevel() >= 4
-                    && eda != null && eda <= 5.0; // Only alert on real high stress, not artifacts
-
-            ensureAlertState(residentId, "data_gap", "warning",
-                    "No watch data has been received for over one hour while the watch is not charging.",
-                    noRecentDataAlert);
-            ensureAlertState(residentId, "wear_status", "warning",
-                    "The watch has not been worn for over one hour while it is not charging.",
-                    notWornAlert);
-            syncDirectionalAlert(residentId, "heart_rate",
-                    lowHeartRateAlert,
-                    lowHeartRateCritical ? "critical" : "warning",
-                    "Heart rate is below the normal range.",
-                    highHeartRateAlert,
-                    highHeartRateCritical ? "critical" : "warning",
-                    "Heart rate is above the normal range.");
-            syncDirectionalAlert(residentId, "temperature",
-                    lowTemperatureAlert,
-                    lowTemperatureCritical ? "critical" : "warning",
-                    "Body temperature is below the normal range.",
-                    highTemperatureAlert,
-                    highTemperatureCritical ? "critical" : "warning",
-                    "Body temperature is above the normal range.");
-            ensureAlertState(residentId, "eda", "warning",
-                    String.format("EDA indicates high stress (%.2f µS).", eda != null ? eda : 0.0),
-                    edaStressAlert);
-        }
-
         LinkedHashMap<String, Object> response = new LinkedHashMap<>();
         response.put("dataAvailable", true);
         response.put("dataSource", isDemoWatch ? "demo" : "real");
@@ -474,6 +444,19 @@ public class WatchServiceImpl implements WatchService {
             minutePayload = buildStoredMinuteEcgPayload(payload, ecgData, ecgAnalysis);
         }
 
+        String effectiveWearStatus = wearStatus;
+        if (effectiveWearStatus == null) {
+            effectiveWearStatus = watchDataRepository.findLatestExplicitWearState(effectiveWatchId)
+                    .map(current -> asString(current.get("wear_status")))
+                    .orElse("worn");
+        }
+        Boolean effectiveIsCharging = isCharging;
+        if (effectiveIsCharging == null) {
+            effectiveIsCharging = watchDataRepository.findLatestPowerState(effectiveWatchId)
+                    .map(current -> toBoolean(current.get("is_charging")))
+                    .orElse(false);
+        }
+
         watchDataRepository.insertWatchReading(new Object[]{
                 residentId,
                 effectiveWatchId,
@@ -490,8 +473,8 @@ public class WatchServiceImpl implements WatchService {
                 eda,
                 edaLabel,
                 edaValidSampleCount,
-                wearStatus == null ? "worn" : wearStatus,
-                isCharging,
+                effectiveWearStatus,
+                effectiveIsCharging,
                 chargeSource,
                 batteryLevelPercent,
                 ecgHeartRate,
@@ -583,8 +566,8 @@ public class WatchServiceImpl implements WatchService {
                         eda,
                         edaLabel,
                         edaValidSampleCount,
-                        wearStatus == null ? "worn" : wearStatus,
-                        isCharging,
+                        effectiveWearStatus,
+                        effectiveIsCharging,
                         chargeSource,
                         batteryLevelPercent,
                         ecgHeartRate,
@@ -594,13 +577,20 @@ public class WatchServiceImpl implements WatchService {
                 }
         );
 
-                watchUpdateStreamService.publishWatchUpdate(
-                    effectiveWatchId,
-                    residentId,
-                    sensorType,
-                    event,
-                    sourceTimestamp
-                );
+        healthMonitoringService.evaluateAfterIngestion(
+                residentId,
+                effectiveWatchId,
+                sensorType,
+                event,
+                edaValidSampleCount
+        );
+        watchUpdateStreamService.publishWatchUpdate(
+                effectiveWatchId,
+                residentId,
+                sensorType,
+                event,
+                sourceTimestamp
+        );
 
         return Map.of(
                 "success", true,
@@ -1086,40 +1076,6 @@ public class WatchServiceImpl implements WatchService {
             item.put("isCharging", toBoolean(row.get("is_charging")));
             return item;
         }).toList();
-    }
-
-    private void ensureAlertState(Integer residentId, String type, String severity, String message, boolean shouldBeActive) {
-        Optional<Map<String, Object>> activeAlert = watchDataRepository.findActiveAlert(residentId, type, message);
-        if (shouldBeActive) {
-            if (activeAlert.isEmpty()) {
-                watchDataRepository.createAlert(residentId, type, severity, message);
-            } else {
-                Integer activeAlertId = toInteger(activeAlert.get().get("id"));
-                String activeSeverity = asString(activeAlert.get().get("severity"));
-                if (activeAlertId != null && !Objects.equals(activeSeverity, severity)) {
-                    watchDataRepository.updateAlertSeverity(activeAlertId, severity);
-                }
-            }
-            return;
-        }
-
-        activeAlert
-                .map(alert -> toInteger(alert.get("id")))
-                .ifPresent(watchDataRepository::resolveAlert);
-    }
-
-    private void syncDirectionalAlert(
-            Integer residentId,
-            String type,
-            boolean lowActive,
-            String lowSeverity,
-            String lowMessage,
-            boolean highActive,
-            String highSeverity,
-            String highMessage
-    ) {
-        ensureAlertState(residentId, type, lowSeverity, lowMessage, lowActive);
-        ensureAlertState(residentId, type, highSeverity, highMessage, highActive);
     }
 
     private String getStatusFromValue(String metric, double value) {
@@ -2754,11 +2710,6 @@ public class WatchServiceImpl implements WatchService {
         }
         List<Double> deviations = values.stream().map(value -> Math.abs(value - center)).toList();
         return median(deviations);
-    }
-
-    private boolean isRecentWithinHour(Object timestamp) {
-        Long epochMs = toEpochMillis(timestamp);
-        return epochMs != null && (System.currentTimeMillis() - epochMs) <= ONE_HOUR_MS;
     }
 
     private String formatDayOption(String dateValue) {

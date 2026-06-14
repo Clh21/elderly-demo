@@ -22,10 +22,11 @@ from collections import deque
 import itertools
 import json
 import math
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -37,9 +38,13 @@ from positioning_config import (
     BEACON_ADV_INTERVAL_MS,
     CONFIDENCE_ERROR_SCALE_M,
     FALLBACK_IMPROVEMENT_MARGIN_M,
+    FOUR_ANCHOR_SETTLE_SEC,
     FURNITURE,
     HOLD_MIN_CONFIDENCE_FOR_LOCK,
     LOCAL_TIME_SYNC_SPAN_LIMIT_SEC,
+    LOW_CONFIDENCE_JUMP_BASE_M,
+    LOW_CONFIDENCE_JUMP_THRESHOLD,
+    LOW_CONFIDENCE_MAX_SPEED_MPS,
     MAX_DISTANCE_M,
     MAX_READING_AGE_SEC,
     MIN_SNAPSHOT_SAMPLES_PER_ANCHOR,
@@ -55,12 +60,17 @@ from positioning_config import (
     MQTT_RSSI_TOPIC,
     MQTT_USERNAME,
     PATH_LOSS_EXPONENT,
+    POSITIONING_WATCH_ID,
     POSITION_AGGREGATION_MODE,
     POSITION_AGGREGATION_WINDOW,
     POSITION_SMOOTHING_ALPHA,
-    POSITION_UPDATE_INTERVAL_SEC,
     PRESSURE_FUSION_BLEND_WIDTH_M,
     PRESSURE_FUSION_RADIUS_M,
+    PRELIMINARY_ALERT_TOPIC,
+    PROLONGED_STILLNESS_COOLDOWN_SEC,
+    PROLONGED_STILLNESS_DURATION_SEC,
+    PROLONGED_STILLNESS_MIN_CONFIDENCE,
+    RELAXED_ANCHOR_SYNC_WINDOW_SEC,
     RSSI_IQR_MULTIPLIER,
     ROOM_BOUNDS_MARGIN_M,
     SMOOTHING_ALPHA_MAX,
@@ -76,18 +86,25 @@ from positioning_config import (
     STATIONARY_RELEASE_CONFIRM_UPDATES,
     STATIONARY_RELEASE_FACTOR,
     STRICT_INROOM_OUTPUT,
+    THREE_ANCHOR_FALLBACK_WAIT_SEC,
+    THREE_ANCHOR_CONFIDENCE_FACTOR,
     TRILATERATION_MAX_RMS_ERROR_M,
     USE_ADAPTIVE_SMOOTHING,
     USE_FILTERED_RSSI,
     USE_MOTION_STATE,
     USE_PACKET_SLOT_SYNC,
+    USE_LATEST_SYNC_FRAME_ONLY,
+    USE_LOW_CONFIDENCE_JUMP_GUARD,
     USE_POSITION_AGGREGATION,
     USE_POSITION_SMOOTHING,
+    USE_PROLONGED_STILLNESS_ALERT,
     USE_RSSI_IQR_FILTER,
     USE_SOFT_PRESSURE_FUSION,
     USE_STATIONARY_HOLD,
+    USE_TIME_SYNC_FALLBACK_AFTER_RELAX,
     USE_WEIGHTED_CENTROID_FALLBACK,
     VERBOSE_LOGGING,
+    MAX_SYNC_FRAME_AGE_SEC,
 )
 
 
@@ -123,6 +140,8 @@ class IndoorPositioningServer:
         }
         self.last_position: Optional[Tuple[float, float]] = None
         self.output_position: Optional[Tuple[float, float]] = None
+        self.last_jump_guard_position: Optional[Tuple[float, float]] = None
+        self.last_jump_guard_at: Optional[float] = None
         self.position_window: deque[Tuple[float, float]] = deque(
             maxlen=max(1, POSITION_AGGREGATION_WINDOW)
         )
@@ -135,6 +154,8 @@ class IndoorPositioningServer:
         self.motion_state = "unknown"
         self.motion_state_count = 0
         self.last_motion_position: Optional[Tuple[float, float]] = None
+        self.stillness_started_at: Optional[float] = None
+        self.last_stillness_alert_at: float = 0.0
 
         # Pressure sensor fusion state
         self.pressure_states: Dict[str, PressureState] = {}
@@ -148,6 +169,12 @@ class IndoorPositioningServer:
             else sorted(ANCHORS.keys())[0]
         )
         self.slot_offset_state: Dict[str, int] = {self.sync_reference_anchor: 0}
+        self.last_published_sync_frame_ts = 0.0
+        self.last_published_fallback_sample_ts = 0.0
+        self.data_lock = threading.RLock()
+        self.data_ready = threading.Event()
+        self.pending_anchor_samples: Dict[str, float] = {}
+        self.batch_started_at: Optional[float] = None
 
         xs = [float(cfg["x"]) for cfg in ANCHORS.values()]
         ys = [float(cfg["y"]) for cfg in ANCHORS.values()]
@@ -231,16 +258,21 @@ class IndoorPositioningServer:
         time_source = str(payload.get("time_source", "ntp")).lower()
 
         now = time.time()
-        self.readings[anchor_id] = AnchorReading(rssi=rssi, updated_at=now)
-        self.rssi_history[anchor_id].append(
-            RssiSample(
-                received_at=now,
-                rssi=rssi,
-                packet_slot=packet_slot,
-                rx_epoch_ms=rx_epoch_ms,
-                time_source=time_source,
+        with self.data_lock:
+            self.readings[anchor_id] = AnchorReading(rssi=rssi, updated_at=now)
+            self.rssi_history[anchor_id].append(
+                RssiSample(
+                    received_at=now,
+                    rssi=rssi,
+                    packet_slot=packet_slot,
+                    rx_epoch_ms=rx_epoch_ms,
+                    time_source=time_source,
+                )
             )
-        )
+            if self.batch_started_at is None:
+                self.batch_started_at = now
+            self.pending_anchor_samples[anchor_id] = now
+        self.data_ready.set()
 
     def _handle_pressure_message(self, msg):
         try:
@@ -285,6 +317,66 @@ class IndoorPositioningServer:
                 self.pressure_override_active = False
                 self.pressure_override_location = None
 
+        self.data_ready.set()
+
+    def wait_for_position_batch(
+        self,
+    ) -> Tuple[Set[str], Optional[float], Dict[str, float], bool]:
+        """Wait until four anchors are ready or the three-anchor deadline expires."""
+        fallback_wait = max(0.1, float(THREE_ANCHOR_FALLBACK_WAIT_SEC))
+        four_anchor_settle = max(0.0, float(FOUR_ANCHOR_SETTLE_SEC))
+        four_anchor_deadline: Optional[float] = None
+
+        while True:
+            with self.data_lock:
+                now = time.time()
+                pending_snapshot = dict(self.pending_anchor_samples)
+                pending_ids = set(pending_snapshot)
+                batch_started_at = self.batch_started_at
+                signaled = self.data_ready.is_set()
+
+                if len(pending_ids) >= 4:
+                    if four_anchor_deadline is None:
+                        four_anchor_deadline = now + four_anchor_settle
+                    remaining = four_anchor_deadline - now
+                    if remaining <= 0.0:
+                        self.data_ready.clear()
+                        return pending_ids, batch_started_at, pending_snapshot, False
+                    wait_timeout: Optional[float] = remaining
+                elif batch_started_at is not None:
+                    remaining = fallback_wait - (now - batch_started_at)
+                    if remaining <= 0.0:
+                        self.data_ready.clear()
+                        return pending_ids, batch_started_at, pending_snapshot, True
+                    wait_timeout: Optional[float] = remaining
+                else:
+                    wait_timeout = None
+
+                if signaled and not pending_ids and self.pressure_override_active:
+                    self.data_ready.clear()
+                    return pending_ids, None, pending_snapshot, False
+
+                self.data_ready.clear()
+
+            self.data_ready.wait(timeout=wait_timeout)
+
+    def finish_position_batch(self, processed_samples: Dict[str, float]) -> None:
+        """Consume only samples seen by this calculation and preserve newer arrivals."""
+        if not processed_samples:
+            return
+
+        with self.data_lock:
+            for anchor_id, processed_at in processed_samples.items():
+                current_at = self.pending_anchor_samples.get(anchor_id)
+                if current_at is not None and current_at <= processed_at:
+                    self.pending_anchor_samples.pop(anchor_id, None)
+
+            if self.pending_anchor_samples:
+                self.batch_started_at = min(self.pending_anchor_samples.values())
+                self.data_ready.set()
+            else:
+                self.batch_started_at = None
+
 
     @staticmethod
     def rssi_to_distance(rssi: float, tx_power: float, n: float) -> float:
@@ -320,15 +412,21 @@ class IndoorPositioningServer:
 
     def get_snapshot_anchor_data(
         self,
+        allowed_anchor_ids: Optional[Set[str]] = None,
+        since: Optional[float] = None,
     ) -> Tuple[List[Tuple[str, float, float, float, float, str]], Dict[str, int]]:
         now = time.time()
         window_sec = max(1.0, float(SNAPSHOT_WINDOW_SEC))
         window_start = now - window_sec
+        sample_start = max(window_start, since) if since is not None else window_start
 
         data: List[Tuple[str, float, float, float, float, str]] = []
         sample_counts: Dict[str, int] = {}
 
         for anchor_id, cfg in ANCHORS.items():
+            if allowed_anchor_ids is not None and anchor_id not in allowed_anchor_ids:
+                continue
+
             history = self.rssi_history.get(anchor_id)
             if history is None:
                 continue
@@ -336,11 +434,20 @@ class IndoorPositioningServer:
             while history and history[0].received_at < window_start:
                 history.popleft()
 
-            sample_counts[anchor_id] = len(history)
-            use_window = len(history) >= max(1, MIN_SNAPSHOT_SAMPLES_PER_ANCHOR)
+            batch_history = [
+                item for item in history if item.received_at >= sample_start
+            ]
+            sample_counts[anchor_id] = len(batch_history)
+            use_window = len(batch_history) >= max(
+                1,
+                MIN_SNAPSHOT_SAMPLES_PER_ANCHOR,
+            )
 
             if use_window:
-                rssi_values = np.array([item.rssi for item in history], dtype=float)
+                rssi_values = np.array(
+                    [item.rssi for item in batch_history],
+                    dtype=float,
+                )
                 if (
                     USE_RSSI_IQR_FILTER
                     and len(rssi_values) >= 4
@@ -355,18 +462,20 @@ class IndoorPositioningServer:
                     if len(filtered) >= 2:
                         rssi_values = filtered
                         if VERBOSE_LOGGING:
-                            removed = len(history) - len(filtered)
+                            removed = len(batch_history) - len(filtered)
                             if removed > 0:
                                 print(
                                     f"[IQR] {anchor_id}: removed {removed} outlier(s), "
                                     f"kept {len(filtered)}"
                                 )
                 rssi = float(np.median(rssi_values))
-                updated_at = float(history[-1].received_at)
-                time_source = str(history[-1].time_source)
+                updated_at = float(batch_history[-1].received_at)
+                time_source = str(batch_history[-1].time_source)
             else:
                 reading = self.readings.get(anchor_id)
                 if not reading:
+                    continue
+                if reading.updated_at < sample_start:
                     continue
                 if now - reading.updated_at > max(MAX_READING_AGE_SEC, window_sec):
                     continue
@@ -514,10 +623,13 @@ class IndoorPositioningServer:
 
     def get_packet_synced_anchor_frames(
         self,
+        allowed_anchor_ids: Optional[Set[str]] = None,
+        since: Optional[float] = None,
     ) -> Tuple[List[List[Tuple[str, float, float, float, float]]], Dict[str, int], int]:
         now = time.time()
         window_sec = max(1.0, float(SNAPSHOT_WINDOW_SEC))
         window_start = now - window_sec
+        sample_start = max(window_start, since) if since is not None else window_start
 
         sample_counts: Dict[str, int] = {}
         slot_samples_by_anchor: Dict[str, List[Tuple[int, RssiSample]]] = {}
@@ -525,6 +637,9 @@ class IndoorPositioningServer:
         samples_with_slot = 0
 
         for anchor_id in ANCHORS:
+            if allowed_anchor_ids is not None and anchor_id not in allowed_anchor_ids:
+                continue
+
             history = self.rssi_history.get(anchor_id)
             if history is None:
                 continue
@@ -532,9 +647,12 @@ class IndoorPositioningServer:
             while history and history[0].received_at < window_start:
                 history.popleft()
 
-            sample_counts[anchor_id] = len(history)
+            batch_samples = [
+                sample for sample in history if sample.received_at >= sample_start
+            ]
+            sample_counts[anchor_id] = len(batch_samples)
 
-            for sample in history:
+            for sample in batch_samples:
                 raw_slot = self.derive_packet_slot(sample)
                 if raw_slot is None:
                     continue
@@ -581,7 +699,7 @@ class IndoorPositioningServer:
                 distance = self.clamp(distance, MIN_DISTANCE_M, MAX_DISTANCE_M)
 
                 timestamp_s = sample.received_at
-                if sample.rx_epoch_ms is not None:
+                if sample.rx_epoch_ms is not None and sample.time_source != "local":
                     timestamp_s = float(sample.rx_epoch_ms) / 1000.0
 
                 frame.append(
@@ -603,7 +721,8 @@ class IndoorPositioningServer:
 
     @staticmethod
     def is_time_synchronized(
-        anchor_data: List[Tuple[str, float, float, float, float, str]]
+        anchor_data: List[Tuple[str, float, float, float, float, str]],
+        limit_override_sec: Optional[float] = None,
     ) -> Tuple[bool, float]:
         if len(anchor_data) < 3:
             return False, float("inf")
@@ -611,12 +730,150 @@ class IndoorPositioningServer:
         span = max(timestamps) - min(timestamps)
         time_sources = {item[5] for item in anchor_data}
         is_local = "local" in time_sources
-        limit = (
-            LOCAL_TIME_SYNC_SPAN_LIMIT_SEC
-            if (is_local and ALLOW_LOCAL_TIME_SYNC)
-            else ANCHOR_SYNC_WINDOW_SEC
-        )
+        if limit_override_sec is not None:
+            limit = max(0.0, float(limit_override_sec))
+        else:
+            limit = (
+                LOCAL_TIME_SYNC_SPAN_LIMIT_SEC
+                if (is_local and ALLOW_LOCAL_TIME_SYNC)
+                else ANCHOR_SYNC_WINDOW_SEC
+            )
         return span <= limit, span
+
+    def try_relaxed_snapshot_fallback(
+        self,
+        allowed_anchor_ids: Optional[Set[str]] = None,
+        since: Optional[float] = None,
+    ) -> Tuple[
+        Optional[Tuple[float, float]],
+        float,
+        str,
+        float,
+        Dict[str, int],
+        List[Tuple[str, float, float, float]],
+        str,
+        float,
+    ]:
+        anchor_data, sample_counts = self.get_snapshot_anchor_data(
+            allowed_anchor_ids=allowed_anchor_ids,
+            since=since,
+        )
+        if len(anchor_data) < 3:
+            online = [item[0] for item in anchor_data]
+            return (
+                None,
+                float("inf"),
+                "unknown",
+                float("inf"),
+                sample_counts,
+                [],
+                f"fallback snapshot anchors={len(online)} -> {online}",
+                0.0,
+            )
+
+        synchronized_subset, span = self.select_best_synchronized_subset(
+            anchor_data,
+            max_span_sec=RELAXED_ANCHOR_SYNC_WINDOW_SEC,
+        )
+        if len(synchronized_subset) < 3:
+            return (
+                None,
+                float("inf"),
+                "unknown",
+                span,
+                sample_counts,
+                [],
+                (
+                    f"fallback snapshot span too large: {span:.2f}s "
+                    f"(limit={RELAXED_ANCHOR_SYNC_WINDOW_SEC:.2f}s)"
+                ),
+                0.0,
+            )
+
+        latest_sample_ts = max(float(item[4]) for item in synchronized_subset)
+        if latest_sample_ts <= self.last_published_fallback_sample_ts + 1e-6:
+            return (
+                None,
+                float("inf"),
+                "unknown",
+                span,
+                sample_counts,
+                [],
+                "fallback snapshot has no newer anchor sample",
+                latest_sample_ts,
+            )
+
+        anchor_distances = [item[:4] for item in synchronized_subset]
+        position, residual_rms_m, solver, used_anchors = self.solve_anchor_distances(
+            anchor_distances
+        )
+        if position is None:
+            return (
+                None,
+                float("inf"),
+                "unknown",
+                span,
+                sample_counts,
+                [],
+                "fallback trilateration failed",
+                latest_sample_ts,
+            )
+
+        if len(synchronized_subset) == 3:
+            solver = f"{solver}+three_anchor_fallback"
+
+        return (
+            self.bound_position(position[0], position[1]),
+            residual_rms_m,
+            f"{solver}+time_fallback",
+            span,
+            sample_counts,
+            used_anchors,
+            "",
+            latest_sample_ts,
+        )
+
+    @staticmethod
+    def select_best_synchronized_subset(
+        anchor_data: List[Tuple[str, float, float, float, float, str]],
+        max_span_sec: float,
+    ) -> Tuple[List[Tuple[str, float, float, float, float, str]], float]:
+        """Prefer four fresh anchors, otherwise use the freshest tight three-anchor subset."""
+        if len(anchor_data) < 3:
+            return [], float("inf")
+
+        limit = max(0.0, float(max_span_sec))
+        max_size = min(4, len(anchor_data))
+        best_rejected_span = float("inf")
+
+        for subset_size in range(max_size, 2, -1):
+            candidates = []
+            for subset in itertools.combinations(anchor_data, subset_size):
+                timestamps = [float(item[4]) for item in subset]
+                span = max(timestamps) - min(timestamps)
+                best_rejected_span = min(best_rejected_span, span)
+                if span <= limit:
+                    candidates.append(
+                        (
+                            span,
+                            -min(timestamps),
+                            tuple(sorted(item[0] for item in subset)),
+                            list(subset),
+                        )
+                    )
+
+            if candidates:
+                candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+                best = candidates[0]
+                return best[3], float(best[0])
+
+        return [], best_rejected_span
+
+    @staticmethod
+    def frame_timestamp(frame: List[Tuple[str, float, float, float, float, str]]) -> float:
+        if not frame:
+            return 0.0
+        return max(float(item[4]) for item in frame)
 
     def smooth_position(
         self, x: float, y: float, confidence: float = 0.5
@@ -656,6 +913,52 @@ class IndoorPositioningServer:
 
         return sx, sy
 
+    def guard_low_confidence_jump(
+        self,
+        x: float,
+        y: float,
+        confidence: float,
+        now: Optional[float] = None,
+    ) -> Tuple[float, float, bool]:
+        """Hold the previous accepted point when a weak result jumps implausibly far."""
+        timestamp = time.time() if now is None else float(now)
+
+        if not USE_LOW_CONFIDENCE_JUMP_GUARD:
+            self.last_jump_guard_position = (x, y)
+            self.last_jump_guard_at = timestamp
+            return x, y, False
+
+        if (
+            self.last_jump_guard_position is None
+            or self.last_jump_guard_at is None
+        ):
+            self.last_jump_guard_position = (x, y)
+            self.last_jump_guard_at = timestamp
+            return x, y, False
+
+        elapsed = max(0.0, timestamp - self.last_jump_guard_at)
+        allowed_movement = max(0.0, float(LOW_CONFIDENCE_JUMP_BASE_M)) + (
+            max(0.0, float(LOW_CONFIDENCE_MAX_SPEED_MPS)) * elapsed
+        )
+        previous_x, previous_y = self.last_jump_guard_position
+        movement = math.hypot(x - previous_x, y - previous_y)
+
+        if (
+            confidence < float(LOW_CONFIDENCE_JUMP_THRESHOLD)
+            and movement > allowed_movement
+        ):
+            if VERBOSE_LOGGING:
+                print(
+                    "[JUMP] Rejected low-confidence position: "
+                    f"movement={movement:.2f}m, allowed={allowed_movement:.2f}m, "
+                    f"confidence={confidence:.2f}"
+                )
+            return previous_x, previous_y, True
+
+        self.last_jump_guard_position = (x, y)
+        self.last_jump_guard_at = timestamp
+        return x, y, False
+
     def bound_position(self, x: float, y: float) -> Tuple[float, float]:
         bx = self.clamp(x, self.min_x, self.max_x)
         by = self.clamp(y, self.min_y, self.max_y)
@@ -668,14 +971,6 @@ class IndoorPositioningServer:
 
     def apply_stationary_hold(self, x: float, y: float) -> Tuple[float, float, bool]:
         if not USE_STATIONARY_HOLD:
-            # 构造警报数据包 (增加缺失的 preliminary_alert 变量)
-            preliminary_alert = {
-                "type": "abnormal_stillness",
-                "message": "检测到长时静止，可能发生跌倒或昏迷",
-                "severity": "CRITICAL"  # 保持与 Java Enum 对齐
-            }
-            # 发布到初筛 Topic，让 AI 去接管
-            self.client.publish("indoor/alert/preliminary", json.dumps(preliminary_alert), qos=1)
             self.output_position = (x, y)
             return x, y, False
             
@@ -840,6 +1135,65 @@ class IndoorPositioningServer:
             if VERBOSE_LOGGING:
                 print(f"[MOTION] state={self.motion_state} movement={movement:.3f}m")
         return self.motion_state
+
+    def evaluate_prolonged_stillness(
+        self,
+        x: float,
+        y: float,
+        confidence: float,
+        activity_state: str,
+        source: str,
+        semantic_location: Optional[str],
+    ) -> None:
+        if not USE_PROLONGED_STILLNESS_ALERT:
+            return
+
+        now = time.time()
+        if (
+            activity_state != "stationary"
+            or confidence < PROLONGED_STILLNESS_MIN_CONFIDENCE
+        ):
+            self.stillness_started_at = None
+            return
+
+        if self.stillness_started_at is None:
+            self.stillness_started_at = now
+            return
+
+        duration_seconds = now - self.stillness_started_at
+        if duration_seconds < PROLONGED_STILLNESS_DURATION_SEC:
+            return
+        if now - self.last_stillness_alert_at < PROLONGED_STILLNESS_COOLDOWN_SEC:
+            return
+
+        payload = {
+            "type": "abnormal_stillness",
+            "severity": "WARNING",
+            "watch_id": POSITIONING_WATCH_ID,
+            "message": (
+                f"No meaningful indoor movement was detected for "
+                f"{duration_seconds / 60:.0f} minutes."
+            ),
+            "duration_seconds": round(duration_seconds, 1),
+            "position_confidence": round(confidence, 3),
+            "position": {"x": round(x, 3), "y": round(y, 3)},
+            "activity_state": activity_state,
+            "semantic_location": semantic_location,
+            "source": source,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+        }
+        self.client.publish(
+            PRELIMINARY_ALERT_TOPIC,
+            json.dumps(payload),
+            qos=1,
+        )
+        self.last_stillness_alert_at = now
+        if VERBOSE_LOGGING:
+            print(
+                "[ALERT] Prolonged stillness preliminary warning: "
+                f"duration={duration_seconds / 60:.1f}min "
+                f"confidence={confidence:.2f}"
+            )
 
     @staticmethod
     def weighted_centroid(
@@ -1020,7 +1374,13 @@ class IndoorPositioningServer:
 
         return position, residual_rms_m, solver, used_anchors
 
-    def compute_confidence(self, residual_rms_m: float, sync_span_s: float, spread_m: float) -> float:
+    def compute_confidence(
+        self,
+        residual_rms_m: float,
+        sync_span_s: float,
+        spread_m: float,
+        anchor_count: int = 4,
+    ) -> float:
         err_scale = max(0.3, CONFIDENCE_ERROR_SCALE_M)
         residual_term = math.exp(-max(0.0, residual_rms_m) / err_scale)
         spread_term = math.exp(-max(0.0, spread_m) / err_scale)
@@ -1030,6 +1390,12 @@ class IndoorPositioningServer:
         sync_term = 1.0 - sync_ratio
 
         confidence = (0.55 * residual_term) + (0.25 * spread_term) + (0.20 * sync_term)
+        if anchor_count <= 3:
+            confidence *= self.clamp(
+                float(THREE_ANCHOR_CONFIDENCE_FACTOR),
+                0.0,
+                1.0,
+            )
         return self.clamp(confidence, 0.0, 1.0)
 
     def publish_position(
@@ -1098,9 +1464,10 @@ class IndoorPositioningServer:
 
         print("[SYS] Indoor positioning server started.")
         print(
-            "[SYS] Snapshot mode enabled: "
-            f"every {POSITION_UPDATE_INTERVAL_SEC:.1f}s, "
-            f"window={SNAPSHOT_WINDOW_SEC:.1f}s"
+            "[SYS] Event-driven positioning enabled: "
+            f"4 anchors settle for {FOUR_ANCHOR_SETTLE_SEC:.2f}s, "
+            f"3 anchors wait up to {THREE_ANCHOR_FALLBACK_WAIT_SEC:.1f}s, "
+            f"sample window={SNAPSHOT_WINDOW_SEC:.1f}s"
         )
         if USE_PACKET_SLOT_SYNC:
             print(
@@ -1114,19 +1481,26 @@ class IndoorPositioningServer:
                 f"tol=+/-{max(0, int(SLOT_OVERLAP_TOLERANCE_SLOTS))} slot, "
                 f"max_step={max(1, int(SLOT_OFFSET_MAX_STEP_PER_UPDATE))}"
             )
+            print(
+                "[SYS] Packet sync fallback: "
+                f"time_fallback={USE_TIME_SYNC_FALLBACK_AFTER_RELAX}, "
+                f"relaxed_window={RELAXED_ANCHOR_SYNC_WINDOW_SEC:.1f}s, "
+                f"latest_only={USE_LATEST_SYNC_FRAME_ONLY}, "
+                f"max_frame_age={MAX_SYNC_FRAME_AGE_SEC:.1f}s"
+            )
         print("[SYS] Waiting for snapshot data from at least 3 anchors...")
         if FURNITURE:
             print(f"[SYS] Pressure fusion enabled for furniture: {list(FURNITURE.keys())}")
 
-
-        next_tick = time.time()
-
         try:
             while True:
+                (
+                    pending_anchor_ids,
+                    batch_started_at,
+                    processed_samples,
+                    allow_three_anchor_fallback,
+                ) = self.wait_for_position_batch()
                 now = time.time()
-                if now < next_tick:
-                    time.sleep(min(0.2, next_tick - now))
-                    continue
 
                 position: Optional[Tuple[float, float]] = None
                 residual_rms_m = float("inf")
@@ -1138,73 +1512,203 @@ class IndoorPositioningServer:
                 anchor_distances: List[Tuple[str, float, float, float]] = []
 
                 if USE_PACKET_SLOT_SYNC:
-                    frames, sample_counts, samples_with_slot = self.get_packet_synced_anchor_frames()
+                    strict_required_frames = max(1, int(MIN_SYNC_FRAMES_PER_UPDATE))
+                    with self.data_lock:
+                        (
+                            frames,
+                            sample_counts,
+                            samples_with_slot,
+                        ) = self.get_packet_synced_anchor_frames(
+                            allowed_anchor_ids=pending_anchor_ids,
+                            since=batch_started_at,
+                        )
 
-                    if not frames:
-                        if VERBOSE_LOGGING:
-                            if samples_with_slot == 0:
-                                print(
-                                    "[WAIT] No packet_slot data in snapshot window. "
-                                    "Flash updated ESP32 firmware and ensure NTP sync is ready."
+                    frames = [
+                        frame
+                        for frame in frames
+                        if len(frame) >= 4 or allow_three_anchor_fallback
+                    ]
+                    wait_detail = ""
+
+                    selected_frame_ts = 0.0
+                    if frames and USE_LATEST_SYNC_FRAME_ONLY:
+                        max_frame_age_sec = max(0.1, float(MAX_SYNC_FRAME_AGE_SEC))
+                        fresh_frames = []
+                        stale_count = 0
+                        for frame in frames:
+                            frame_ts = self.frame_timestamp(frame)
+                            frame_age = now - frame_ts
+                            if frame_age <= max_frame_age_sec:
+                                fresh_frames.append(frame)
+                            else:
+                                stale_count += 1
+
+                        if fresh_frames:
+                            fresh_frames.sort(key=self.frame_timestamp)
+                            latest_frame = fresh_frames[-1]
+                            selected_frame_ts = self.frame_timestamp(latest_frame)
+                            if selected_frame_ts <= self.last_published_sync_frame_ts + 1e-6:
+                                frames = []
+                                wait_detail = (
+                                    "No newer synchronized frame to publish | "
+                                    f"last_frame_ts={self.last_published_sync_frame_ts:.3f}"
                                 )
                             else:
-                                print(
-                                    "[WAIT] packet_slot samples exist but no same-slot 3-anchor frame | "
-                                    f"sample_counts={sample_counts}"
-                                )
-                        next_tick = time.time() + max(1.0, POSITION_UPDATE_INTERVAL_SEC)
-                        continue
-
-                    solved_positions: List[Tuple[float, float]] = []
-                    solved_residuals: List[float] = []
-                    solved_spans: List[float] = []
-                    solver_votes: Dict[str, int] = {}
-
-                    for frame in frames:
-                        # Frames are already grouped by aligned packet_slot, so they are
-                        # synchronized by definition. Use 0 span to avoid penalizing
-                        # anchors that use local millis() fallback instead of NTP.
-                        frame_span = 0.0
-                        frame_anchor_distances = [item[:4] for item in frame]
-
-                        (
-                            frame_position,
-                            frame_residual,
-                            frame_solver,
-                            frame_anchor_distances,
-                        ) = self.solve_anchor_distances(frame_anchor_distances)
-                        if frame_position is None:
-                            continue
-
-                        bounded_frame = self.bound_position(frame_position[0], frame_position[1])
-                        solved_positions.append(bounded_frame)
-                        solved_residuals.append(frame_residual)
-                        solved_spans.append(frame_span)
-                        solver_votes[frame_solver] = solver_votes.get(frame_solver, 0) + 1
-                        anchor_distances = frame_anchor_distances
-
-                    sync_frames = len(solved_positions)
-                    if sync_frames < max(1, MIN_SYNC_FRAMES_PER_UPDATE):
-                        if VERBOSE_LOGGING:
-                            print(
-                                f"[WAIT] synchronized frames={sync_frames} "
-                                f"(< {max(1, MIN_SYNC_FRAMES_PER_UPDATE)}) | "
+                                frames = [latest_frame]
+                                if VERBOSE_LOGGING and stale_count > 0:
+                                    print(
+                                        "[SYNC] Dropped stale synchronized frame(s): "
+                                        f"count={stale_count}, max_age={max_frame_age_sec:.1f}s"
+                                    )
+                        else:
+                            frames = []
+                            wait_detail = (
+                                "No fresh synchronized frame in latest window | "
+                                f"dropped_stale={stale_count}, "
+                                f"max_age={max_frame_age_sec:.1f}s, "
                                 f"sample_counts={sample_counts}"
                             )
-                        next_tick = time.time() + max(1.0, POSITION_UPDATE_INTERVAL_SEC)
-                        continue
 
-                    xs = np.array([p[0] for p in solved_positions], dtype=float)
-                    ys = np.array([p[1] for p in solved_positions], dtype=float)
-                    position = (float(np.median(xs)), float(np.median(ys)))
-                    snapshot_spread = float(np.sqrt(np.var(xs) + np.var(ys)))
-                    residual_rms_m = float(np.median(np.array(solved_residuals, dtype=float)))
-                    span = float(np.median(np.array(solved_spans, dtype=float))) if solved_spans else 0.0
-                    if solver_votes:
-                        solver = max(solver_votes, key=solver_votes.get)
+                    if frames:
+                        solved_positions: List[Tuple[float, float]] = []
+                        solved_residuals: List[float] = []
+                        solved_spans: List[float] = []
+                        solver_votes: Dict[str, int] = {}
+
+                        for frame in frames:
+                            # Frames are already grouped by aligned packet_slot, so they are
+                            # synchronized by definition. Use 0 span to avoid penalizing
+                            # anchors that use local millis() fallback instead of NTP.
+                            frame_span = 0.0
+                            frame_anchor_distances = [item[:4] for item in frame]
+
+                            (
+                                frame_position,
+                                frame_residual,
+                                frame_solver,
+                                frame_anchor_distances,
+                            ) = self.solve_anchor_distances(frame_anchor_distances)
+                            if frame_position is None:
+                                continue
+
+                            bounded_frame = self.bound_position(
+                                frame_position[0],
+                                frame_position[1],
+                            )
+                            solved_positions.append(bounded_frame)
+                            solved_residuals.append(frame_residual)
+                            solved_spans.append(frame_span)
+                            solver_votes[frame_solver] = solver_votes.get(frame_solver, 0) + 1
+                            anchor_distances = frame_anchor_distances
+
+                        sync_frames = len(solved_positions)
+                        can_use_packet_result = sync_frames >= strict_required_frames
+
+                        if can_use_packet_result:
+                            xs = np.array([p[0] for p in solved_positions], dtype=float)
+                            ys = np.array([p[1] for p in solved_positions], dtype=float)
+                            position = (float(np.median(xs)), float(np.median(ys)))
+                            snapshot_spread = float(np.sqrt(np.var(xs) + np.var(ys)))
+                            residual_rms_m = float(np.median(np.array(solved_residuals, dtype=float)))
+                            span = (
+                                float(np.median(np.array(solved_spans, dtype=float)))
+                                if solved_spans
+                                else 0.0
+                            )
+                            if solver_votes:
+                                solver = max(solver_votes, key=solver_votes.get)
+
+                            if (
+                                allow_three_anchor_fallback
+                                and len(anchor_distances) == 3
+                            ):
+                                solver = f"{solver}+three_anchor_fallback"
+                            if selected_frame_ts > 0.0:
+                                self.last_published_sync_frame_ts = selected_frame_ts
+                        else:
+                            wait_detail = (
+                                f"synchronized frames={sync_frames} "
+                                f"(< {strict_required_frames}) | "
+                                f"sample_counts={sample_counts}"
+                            )
+                    else:
+                        if wait_detail:
+                            pass
+                        elif samples_with_slot == 0:
+                            wait_detail = (
+                                "No packet_slot data in snapshot window. "
+                                "Flash updated ESP32 firmware and ensure NTP sync is ready."
+                            )
+                        else:
+                            wait_detail = (
+                                "packet_slot samples exist but no same-slot 3-anchor frame | "
+                                f"sample_counts={sample_counts}"
+                            )
+
+                    if position is None:
+                        if (
+                            allow_three_anchor_fallback
+                            and USE_TIME_SYNC_FALLBACK_AFTER_RELAX
+                        ):
+                            (
+                                fallback_position,
+                                fallback_residual,
+                                fallback_solver,
+                                fallback_span,
+                                fallback_sample_counts,
+                                fallback_anchor_distances,
+                                fallback_reason,
+                                fallback_sample_ts,
+                            ) = self.try_relaxed_snapshot_fallback(
+                                allowed_anchor_ids=pending_anchor_ids,
+                                since=batch_started_at,
+                            )
+
+                            if fallback_position is not None:
+                                position = fallback_position
+                                residual_rms_m = fallback_residual
+                                solver = fallback_solver
+                                span = fallback_span
+                                snapshot_spread = 0.0
+                                sync_frames = 1
+                                anchor_distances = fallback_anchor_distances
+                                sample_counts = fallback_sample_counts or sample_counts
+                                self.last_published_fallback_sample_ts = fallback_sample_ts
+                                if VERBOSE_LOGGING:
+                                    print(
+                                        "[RELAX] Using event-batch time fallback: "
+                                        f"span={span:.2f}s | sample_counts={sample_counts}"
+                                    )
+                            elif VERBOSE_LOGGING:
+                                print(f"[WAIT] {wait_detail}")
+                                print(f"[WAIT] {fallback_reason}")
+                        elif VERBOSE_LOGGING:
+                            print(f"[WAIT] {wait_detail}")
+
+                    if (
+                        position is None
+                        and not (
+                            self.pressure_override_active
+                            and self.pressure_override_location
+                        )
+                    ):
+                        if allow_three_anchor_fallback:
+                            self.finish_position_batch(processed_samples)
+                        continue
                 else:
-                    anchor_data, sample_counts = self.get_snapshot_anchor_data()
-                    if len(anchor_data) >= 3:
+                    with self.data_lock:
+                        anchor_data, sample_counts = self.get_snapshot_anchor_data(
+                            allowed_anchor_ids=pending_anchor_ids,
+                            since=batch_started_at,
+                        )
+                    enough_anchors = (
+                        len(anchor_data) >= 4
+                        or (
+                            allow_three_anchor_fallback
+                            and len(anchor_data) >= 3
+                        )
+                    )
+                    if enough_anchors:
                         sync_ok, span = self.is_time_synchronized(anchor_data)
                         if sync_ok:
                             anchor_distances = [item[:4] for item in anchor_data]
@@ -1214,6 +1718,8 @@ class IndoorPositioningServer:
                                 solver,
                                 anchor_distances,
                             ) = self.solve_anchor_distances(anchor_distances)
+                            if len(anchor_distances) == 3:
+                                solver = f"{solver}+three_anchor_fallback"
                             sync_frames = 1
                         elif VERBOSE_LOGGING:
                             print(
@@ -1226,6 +1732,17 @@ class IndoorPositioningServer:
                             f"[WAIT] Snapshot anchors={len(online)} -> {online} | "
                             f"sample_counts={sample_counts}"
                         )
+
+                    if (
+                        position is None
+                        and allow_three_anchor_fallback
+                        and not (
+                            self.pressure_override_active
+                            and self.pressure_override_location
+                        )
+                    ):
+                        self.finish_position_batch(processed_samples)
+                        continue
 
                 # If pressure override is active but BLE has no valid position,
                 # still publish the furniture position so the UI does not go stale.
@@ -1240,6 +1757,14 @@ class IndoorPositioningServer:
                         fy = float(furniture["y"])
                         semantic = str(furniture.get("label", self.pressure_override_location))
                         activity_state = self.detect_motion_state(fx, fy)
+                        self.evaluate_prolonged_stillness(
+                            fx,
+                            fy,
+                            1.0,
+                            activity_state,
+                            "pressure",
+                            semantic,
+                        )
                         self.publish_position(
                             fx,
                             fy,
@@ -1257,7 +1782,8 @@ class IndoorPositioningServer:
                             activity_state=activity_state,
                             stationary_hold=False,
                         )
-                        next_tick = time.time() + max(1.0, POSITION_UPDATE_INTERVAL_SEC)
+                        if allow_three_anchor_fallback:
+                            self.finish_position_batch(processed_samples)
                         continue
 
                 if position is not None and anchor_distances:
@@ -1266,10 +1792,30 @@ class IndoorPositioningServer:
                         residual_rms_m=residual_rms_m,
                         sync_span_s=span,
                         spread_m=snapshot_spread,
+                        anchor_count=len(anchor_distances),
                     )
 
+                    guarded_x, guarded_y, jump_guarded = (
+                        self.guard_low_confidence_jump(
+                            position[0],
+                            position[1],
+                            prelim_confidence,
+                            now=now,
+                        )
+                    )
+                    if jump_guarded:
+                        if VERBOSE_LOGGING:
+                            print(
+                                "[DROP] Invalid jump result was not published; "
+                                "frontend keeps the previous valid position."
+                            )
+                        self.finish_position_batch(processed_samples)
+                        continue
+
                     smoothed = self.smooth_position(
-                        position[0], position[1], confidence=prelim_confidence
+                        guarded_x,
+                        guarded_y,
+                        confidence=prelim_confidence,
                     )
                     bounded = self.bound_position(smoothed[0], smoothed[1])
                     if VERBOSE_LOGGING:
@@ -1295,6 +1841,7 @@ class IndoorPositioningServer:
                         residual_rms_m=residual_rms_m,
                         sync_span_s=span,
                         spread_m=spread_m,
+                        anchor_count=len(anchor_distances),
                     )
 
                     if confidence < HOLD_MIN_CONFIDENCE_FOR_LOCK:
@@ -1332,6 +1879,14 @@ class IndoorPositioningServer:
                     )
 
                     activity_state = self.detect_motion_state(publish_x, publish_y)
+                    self.evaluate_prolonged_stillness(
+                        publish_x,
+                        publish_y,
+                        publish_confidence,
+                        activity_state,
+                        source,
+                        semantic_location,
+                    )
 
                     self.publish_position(
                         publish_x,
@@ -1353,7 +1908,8 @@ class IndoorPositioningServer:
                 elif VERBOSE_LOGGING:
                     print("[WARN] Trilateration failed due to unstable geometry")
 
-                next_tick = time.time() + max(1.0, POSITION_UPDATE_INTERVAL_SEC)
+                if position is not None:
+                    self.finish_position_batch(processed_samples)
         except KeyboardInterrupt:
             print("\n[SYS] Stopping server...")
         finally:
