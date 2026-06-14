@@ -18,17 +18,36 @@ PATH_LOSS_EXPONENT = 2.0
 
 # Coordinate system for current deployment:
 # - Room size: 7.5 m (long) x 4.0 m (wide)
-# - x axis: along the long side from anchor_02 to anchor_03 (length = 7.5 m)
+# - x axis: along the long side of the room (length = 7.5 m)
 # - y axis: perpendicular to x axis toward anchor_01 direction (width = 4.0 m)
-# - Origin is placed at anchor_02 (front-left corner when looking into the room)
+# - Origin is the room's front-left corner; anchor_02 is offset to y = 1.1 m
 # - All anchors are placed on chairs at 0.9 m height (2D model currently uses x/y only)
-# - tx_power values below are from a previous deployment; recalibrate each anchor
-#   at 1 m line-of-sight for best accuracy in this new room.
+# - RSSI model values are calibrated for each anchor in its deployed position.
 ANCHORS = {
-    "anchor_01": {"x": 0.0, "y": 4.0, "tx_power": -65.47},
-    "anchor_02": {"x": 0.0, "y": 0.0, "tx_power": -66.95},
-    "anchor_03": {"x": 7.5, "y": 0.0, "tx_power": -68.04},
-    "anchor_04": {"x": 7.5, "y": 4.0, "tx_power": -67.00},
+    "anchor_01": {
+        "x": 0.0,
+        "y": 4.0,
+        "tx_power": -59.04,
+        "path_loss_n": 2.940,
+    },
+    "anchor_02": {
+        "x": 0.0,
+        "y": 1.1,
+        "tx_power": -59.87,
+        "path_loss_n": 1.719,
+    },
+    "anchor_03": {
+        "x": 7.5,
+        "y": 0.0,
+        "tx_power": -66.0,
+        "path_loss_n": 2.0,
+    },
+    "anchor_04": {
+        "x": 7.5,
+        "y": 4.0,
+        "tx_power": -64.51,
+        "path_loss_n": 1.154,
+    },
 }
 
 # Furniture definitions for pressure-sensor fusion.
@@ -96,17 +115,22 @@ MAX_READING_AGE_SEC = 4.0
 USE_FILTERED_RSSI = True
 
 # Teacher-required consistency mode:
-# each trilateration frame must use RSSI samples from the same beacon advertising slot.
+# each trilateration frame groups RSSI samples around the same beacon
+# advertising slot. ESP32 scan/report latency can shift packet_slot by a
+# few intervals, so the actual frame matcher allows a small slot tolerance.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 100
+MIN_ANCHORS_PER_SYNC_FRAME = 3
 MIN_SYNC_FRAMES_PER_UPDATE = 1
+FRAME_MATCH_TOLERANCE_SLOTS = 2
 
-# Keep strict packet-slot sync first, then use a short time-synchronized
-# three-anchor fallback when the current event batch reaches its deadline.
-USE_TIME_SYNC_FALLBACK_AFTER_RELAX = True
+# Publish only the newest qualifying packet-synchronized frame. Do not fall
+# back to an arbitrary time window; if a batch cannot form a fresh 3/4-anchor
+# frame, discard it and wait for the next interval.
+USE_TIME_SYNC_FALLBACK_AFTER_RELAX = False
 RELAXED_ANCHOR_SYNC_WINDOW_SEC = 1.5
-USE_LATEST_SYNC_FRAME_ONLY = False
-MAX_SYNC_FRAME_AGE_SEC = 3.5
+USE_LATEST_SYNC_FRAME_ONLY = True
+MAX_SYNC_FRAME_AGE_SEC = 2.5
 
 # When anchors report time_source="local" (no internet NTP), relax the timestamp
 # span check because their millis() clocks are not globally synchronized.
@@ -135,12 +159,19 @@ USE_WEIGHTED_CENTROID_FALLBACK = True
 CONFIDENCE_ERROR_SCALE_M = 1.8
 # A three-anchor solution has no spare anchor for cross-checking.
 THREE_ANCHOR_CONFIDENCE_FACTOR = 0.8
+MIN_POSITION_CONFIDENCE_TO_PUBLISH = 0.55
+THREE_ANCHOR_MAX_RESIDUAL_M = 1.25
+THREE_ANCHOR_LARGE_JUMP_M = 0.85
+THREE_ANCHOR_JUMP_CONFIRM_UPDATES = 3
+THREE_ANCHOR_JUMP_CONFIRM_RADIUS_M = 0.75
+THREE_ANCHOR_INITIAL_CONFIRM_UPDATES = 3
 
 # Reject implausible low-confidence jumps before they enter smoothing.
 USE_LOW_CONFIDENCE_JUMP_GUARD = True
 LOW_CONFIDENCE_JUMP_THRESHOLD = 0.82
 LOW_CONFIDENCE_JUMP_BASE_M = 0.35
 LOW_CONFIDENCE_MAX_SPEED_MPS = 1.5
+LOW_CONFIDENCE_MAX_ALLOWED_JUMP_M = 1.4
 
 # Clamp RSSI-derived distance to a reasonable range (meters).
 MIN_DISTANCE_M = 0.2
@@ -152,7 +183,7 @@ POSITION_SMOOTHING_ALPHA = 0.45
 
 # Aggregate recent solved positions for a more stable reported coordinate.
 USE_POSITION_AGGREGATION = True
-POSITION_AGGREGATION_WINDOW = 2
+POSITION_AGGREGATION_WINDOW = 3
 POSITION_AGGREGATION_MODE = "median"  # "median" or "mean"
 
 # Stationary hold: lock coordinates when movement is tiny to prevent drift.

@@ -39,14 +39,18 @@ from positioning_config import (
     CONFIDENCE_ERROR_SCALE_M,
     FALLBACK_IMPROVEMENT_MARGIN_M,
     FOUR_ANCHOR_SETTLE_SEC,
+    FRAME_MATCH_TOLERANCE_SLOTS,
     FURNITURE,
     HOLD_MIN_CONFIDENCE_FOR_LOCK,
     LOCAL_TIME_SYNC_SPAN_LIMIT_SEC,
+    LOW_CONFIDENCE_MAX_ALLOWED_JUMP_M,
     LOW_CONFIDENCE_JUMP_BASE_M,
     LOW_CONFIDENCE_JUMP_THRESHOLD,
     LOW_CONFIDENCE_MAX_SPEED_MPS,
     MAX_DISTANCE_M,
     MAX_READING_AGE_SEC,
+    MIN_ANCHORS_PER_SYNC_FRAME,
+    MIN_POSITION_CONFIDENCE_TO_PUBLISH,
     MIN_SNAPSHOT_SAMPLES_PER_ANCHOR,
     MIN_SYNC_FRAMES_PER_UPDATE,
     MIN_DISTANCE_M,
@@ -88,6 +92,11 @@ from positioning_config import (
     STRICT_INROOM_OUTPUT,
     THREE_ANCHOR_FALLBACK_WAIT_SEC,
     THREE_ANCHOR_CONFIDENCE_FACTOR,
+    THREE_ANCHOR_INITIAL_CONFIRM_UPDATES,
+    THREE_ANCHOR_JUMP_CONFIRM_RADIUS_M,
+    THREE_ANCHOR_JUMP_CONFIRM_UPDATES,
+    THREE_ANCHOR_LARGE_JUMP_M,
+    THREE_ANCHOR_MAX_RESIDUAL_M,
     TRILATERATION_MAX_RMS_ERROR_M,
     USE_ADAPTIVE_SMOOTHING,
     USE_FILTERED_RSSI,
@@ -149,6 +158,8 @@ class IndoorPositioningServer:
         self.stationary_hold_active = False
         self.release_count = 0
         self.last_alpha = POSITION_SMOOTHING_ALPHA
+        self.pending_three_anchor_position: Optional[Tuple[float, float]] = None
+        self.pending_three_anchor_count = 0
 
         # Motion state
         self.motion_state = "unknown"
@@ -633,7 +644,6 @@ class IndoorPositioningServer:
 
         sample_counts: Dict[str, int] = {}
         slot_samples_by_anchor: Dict[str, List[Tuple[int, RssiSample]]] = {}
-        slot_to_anchor_samples: Dict[int, Dict[str, RssiSample]] = {}
         samples_with_slot = 0
 
         for anchor_id in ANCHORS:
@@ -664,31 +674,64 @@ class IndoorPositioningServer:
             anchor_id: [entry[0] for entry in entries]
             for anchor_id, entries in slot_samples_by_anchor.items()
         }
-        slot_offsets = self.estimate_anchor_slot_offsets(slot_series)
+        uses_global_slots = all(
+            sample.rx_epoch_ms is not None and sample.time_source != "local"
+            for entries in slot_samples_by_anchor.values()
+            for _, sample in entries
+        )
+        if uses_global_slots:
+            slot_offsets = {anchor_id: 0 for anchor_id in slot_samples_by_anchor}
+        else:
+            slot_offsets = self.estimate_anchor_slot_offsets(slot_series)
 
         if VERBOSE_LOGGING and slot_offsets:
             non_zero_offsets = {k: v for k, v in slot_offsets.items() if v != 0}
             if non_zero_offsets:
                 print(f"[SYNC] estimated slot offsets: {non_zero_offsets}")
 
+        aligned_samples_by_anchor: Dict[str, List[Tuple[int, RssiSample]]] = {}
         for anchor_id, entries in slot_samples_by_anchor.items():
             anchor_offset = slot_offsets.get(anchor_id, 0)
+            latest_by_slot: Dict[int, RssiSample] = {}
             for raw_slot, sample in entries:
                 aligned_slot = raw_slot - anchor_offset
-                slot_samples = slot_to_anchor_samples.setdefault(aligned_slot, {})
-                previous = slot_samples.get(anchor_id)
+                previous = latest_by_slot.get(aligned_slot)
                 if previous is None or sample.received_at > previous.received_at:
-                    slot_samples[anchor_id] = sample
+                    latest_by_slot[aligned_slot] = sample
+            aligned_samples_by_anchor[anchor_id] = sorted(latest_by_slot.items())
 
         frames: List[List[Tuple[str, float, float, float, float]]] = []
+        min_frame_anchors = max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))
+        slot_tolerance = max(0, int(FRAME_MATCH_TOLERANCE_SLOTS))
+        center_slots = sorted(
+            {
+                slot_id
+                for entries in aligned_samples_by_anchor.values()
+                for slot_id, _ in entries
+            }
+        )
+        seen_frames: Set[Tuple[Tuple[str, int, float], ...]] = set()
 
-        for slot_id in sorted(slot_to_anchor_samples.keys()):
-            grouped = slot_to_anchor_samples[slot_id]
-            if len(grouped) < 3:
+        for center_slot in center_slots:
+            grouped: Dict[str, Tuple[int, RssiSample]] = {}
+            for anchor_id, entries in aligned_samples_by_anchor.items():
+                candidates = [
+                    (abs(slot_id - center_slot), -sample.received_at, slot_id, sample)
+                    for slot_id, sample in entries
+                    if abs(slot_id - center_slot) <= slot_tolerance
+                ]
+                if not candidates:
+                    continue
+
+                _, _, selected_slot, selected_sample = min(candidates)
+                grouped[anchor_id] = (selected_slot, selected_sample)
+
+            if len(grouped) < min_frame_anchors:
                 continue
 
             frame: List[Tuple[str, float, float, float, float]] = []
-            for anchor_id, sample in grouped.items():
+            frame_key_parts: List[Tuple[str, int, float]] = []
+            for anchor_id, (slot_id, sample) in grouped.items():
                 cfg = ANCHORS[anchor_id]
                 path_loss_n = float(cfg.get("path_loss_n", PATH_LOSS_EXPONENT))
                 distance = self.rssi_to_distance(
@@ -712,8 +755,13 @@ class IndoorPositioningServer:
                         str(sample.time_source),
                     )
                 )
+                frame_key_parts.append((anchor_id, slot_id, round(sample.received_at, 6)))
 
-            if len(frame) >= 3:
+            if len(frame) >= min_frame_anchors:
+                frame_key = tuple(sorted(frame_key_parts))
+                if frame_key in seen_frames:
+                    continue
+                seen_frames.add(frame_key)
                 frame.sort(key=lambda item: item[0])
                 frames.append(frame)
 
@@ -940,6 +988,9 @@ class IndoorPositioningServer:
         allowed_movement = max(0.0, float(LOW_CONFIDENCE_JUMP_BASE_M)) + (
             max(0.0, float(LOW_CONFIDENCE_MAX_SPEED_MPS)) * elapsed
         )
+        max_allowed_jump = max(0.0, float(LOW_CONFIDENCE_MAX_ALLOWED_JUMP_M))
+        if max_allowed_jump > 0.0:
+            allowed_movement = min(allowed_movement, max_allowed_jump)
         previous_x, previous_y = self.last_jump_guard_position
         movement = math.hypot(x - previous_x, y - previous_y)
 
@@ -958,6 +1009,83 @@ class IndoorPositioningServer:
         self.last_jump_guard_position = (x, y)
         self.last_jump_guard_at = timestamp
         return x, y, False
+
+    def guard_unstable_position(
+        self,
+        x: float,
+        y: float,
+        confidence: float,
+        residual_rms_m: float,
+        anchor_count: int,
+    ) -> bool:
+        """Reject weak or unconfirmed three-anchor points before smoothing."""
+        min_confidence = self.clamp(float(MIN_POSITION_CONFIDENCE_TO_PUBLISH), 0.0, 1.0)
+        if confidence < min_confidence:
+            if VERBOSE_LOGGING:
+                print(
+                    "[DROP] Position confidence below publish threshold: "
+                    f"confidence={confidence:.2f}, min={min_confidence:.2f}"
+                )
+            return True
+
+        if anchor_count >= 4:
+            self.pending_three_anchor_position = None
+            self.pending_three_anchor_count = 0
+            return False
+
+        if residual_rms_m > max(0.1, float(THREE_ANCHOR_MAX_RESIDUAL_M)):
+            if VERBOSE_LOGGING:
+                print(
+                    "[DROP] Three-anchor residual too high: "
+                    f"residual={residual_rms_m:.2f}m, "
+                    f"max={float(THREE_ANCHOR_MAX_RESIDUAL_M):.2f}m"
+                )
+            return True
+
+        previous = self.last_jump_guard_position or self.output_position
+        large_jump_threshold = max(0.1, float(THREE_ANCHOR_LARGE_JUMP_M))
+        required_updates = max(1, int(THREE_ANCHOR_JUMP_CONFIRM_UPDATES))
+        if previous is None:
+            movement = float("inf")
+            required_updates = max(
+                required_updates,
+                max(1, int(THREE_ANCHOR_INITIAL_CONFIRM_UPDATES)),
+            )
+        else:
+            movement = math.hypot(x - previous[0], y - previous[1])
+
+        if movement <= large_jump_threshold:
+            self.pending_three_anchor_position = None
+            self.pending_three_anchor_count = 0
+            return False
+
+        cluster_radius = max(0.1, float(THREE_ANCHOR_JUMP_CONFIRM_RADIUS_M))
+        pending = self.pending_three_anchor_position
+        if pending is None or math.hypot(x - pending[0], y - pending[1]) > cluster_radius:
+            self.pending_three_anchor_position = (x, y)
+            self.pending_three_anchor_count = 1
+        else:
+            self.pending_three_anchor_count += 1
+
+        if self.pending_three_anchor_count < required_updates:
+            if VERBOSE_LOGGING:
+                print(
+                    "[WAIT] Three-anchor jump waiting for confirmation: "
+                    f"movement={movement:.2f}m, "
+                    f"count={self.pending_three_anchor_count}/{required_updates}, "
+                    f"confidence={confidence:.2f}, residual={residual_rms_m:.2f}m"
+                )
+            return True
+
+        if VERBOSE_LOGGING:
+            print(
+                "[SYNC] Three-anchor jump confirmed: "
+                f"movement={movement:.2f}m, "
+                f"count={self.pending_three_anchor_count}/{required_updates}"
+            )
+        self.pending_three_anchor_position = None
+        self.pending_three_anchor_count = 0
+        return False
 
     def bound_position(self, x: float, y: float) -> Tuple[float, float]:
         bx = self.clamp(x, self.min_x, self.max_x)
@@ -1473,12 +1601,14 @@ class IndoorPositioningServer:
             print(
                 "[SYS] Strict packet-slot sync enabled: "
                 f"slot={BEACON_ADV_INTERVAL_MS}ms, "
+                f"min_anchors={max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))}, "
                 f"min_frames={max(1, MIN_SYNC_FRAMES_PER_UPDATE)}"
             )
             print(
                 "[SYS] Slot alignment tuning: "
                 f"ref={self.sync_reference_anchor}, "
                 f"tol=+/-{max(0, int(SLOT_OVERLAP_TOLERANCE_SLOTS))} slot, "
+                f"frame_match=+/-{max(0, int(FRAME_MATCH_TOLERANCE_SLOTS))} slots, "
                 f"max_step={max(1, int(SLOT_OFFSET_MAX_STEP_PER_UPDATE))}"
             )
             print(
@@ -1523,11 +1653,8 @@ class IndoorPositioningServer:
                             since=batch_started_at,
                         )
 
-                    frames = [
-                        frame
-                        for frame in frames
-                        if len(frame) >= 4 or allow_three_anchor_fallback
-                    ]
+                    min_frame_anchors = max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))
+                    frames = [frame for frame in frames if len(frame) >= min_frame_anchors]
                     wait_detail = ""
 
                     selected_frame_ts = 0.0
@@ -1544,7 +1671,9 @@ class IndoorPositioningServer:
                                 stale_count += 1
 
                         if fresh_frames:
-                            fresh_frames.sort(key=self.frame_timestamp)
+                            fresh_frames.sort(
+                                key=lambda frame: (self.frame_timestamp(frame), len(frame))
+                            )
                             latest_frame = fresh_frames[-1]
                             selected_frame_ts = self.frame_timestamp(latest_frame)
                             if selected_frame_ts <= self.last_published_sync_frame_ts + 1e-6:
@@ -1619,10 +1748,9 @@ class IndoorPositioningServer:
                                 solver = max(solver_votes, key=solver_votes.get)
 
                             if (
-                                allow_three_anchor_fallback
-                                and len(anchor_distances) == 3
+                                len(anchor_distances) == 3
                             ):
-                                solver = f"{solver}+three_anchor_fallback"
+                                solver = f"{solver}+three_anchor_sync"
                             if selected_frame_ts > 0.0:
                                 self.last_published_sync_frame_ts = selected_frame_ts
                         else:
@@ -1692,7 +1820,7 @@ class IndoorPositioningServer:
                             and self.pressure_override_location
                         )
                     ):
-                        if allow_three_anchor_fallback:
+                        if USE_PACKET_SLOT_SYNC or allow_three_anchor_fallback:
                             self.finish_position_batch(processed_samples)
                         continue
                 else:
@@ -1794,6 +1922,16 @@ class IndoorPositioningServer:
                         spread_m=snapshot_spread,
                         anchor_count=len(anchor_distances),
                     )
+
+                    if self.guard_unstable_position(
+                        position[0],
+                        position[1],
+                        prelim_confidence,
+                        residual_rms_m,
+                        len(anchor_distances),
+                    ):
+                        self.finish_position_batch(processed_samples)
+                        continue
 
                     guarded_x, guarded_y, jump_guarded = (
                         self.guard_low_confidence_jump(

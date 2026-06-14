@@ -17,11 +17,20 @@ $pythonCandidates = @(
     (Join-Path $Root "..\..\.venv\Scripts\python.exe")
 )
 
-$PythonExe = $pythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $PythonExe) {
-    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCmd) {
-        $PythonExe = $pythonCmd.Source
+$pythonCommands = Get-Command python -All -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty Source -Unique
+$pythonCandidates += $pythonCommands
+
+$PythonExe = $null
+foreach ($candidate in ($pythonCandidates | Where-Object { $_ } | Select-Object -Unique)) {
+    if (-not (Test-Path $candidate)) {
+        continue
+    }
+
+    & $candidate -c "import paho.mqtt.client, numpy" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $PythonExe = (Resolve-Path $candidate).Path
+        break
     }
 }
 
@@ -76,13 +85,27 @@ function Start-ScriptIfNotRunning {
         -RedirectStandardError $stderrPath `
         -PassThru
     Set-Content -Path $pidPath -Value $process.Id
+    Start-Sleep -Seconds 1
+    $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+    if (-not $running) {
+        Remove-Item $pidPath -Force -ErrorAction SilentlyContinue
+        Write-Output "[ERROR] $Label exited during startup."
+        Write-Output "[LOG] $stderrPath"
+        if (Test-Path $stderrPath) {
+            Get-Content $stderrPath -Tail 20
+        }
+        throw "$Label failed to start."
+    }
+
     Write-Output "[START] $Label started. PID=$($process.Id)"
     Write-Output "[LOG] $stdoutPath"
 }
 
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
-    throw "Python not found: $PythonExe"
+    throw "No Python installation with paho-mqtt and numpy was found. Run: python -m pip install -r requirements.txt"
 }
+
+Write-Output "[PYTHON] Using $PythonExe"
 
 if (-not $SkipBroker) {
     if (Test-Path $BrokerScript) {

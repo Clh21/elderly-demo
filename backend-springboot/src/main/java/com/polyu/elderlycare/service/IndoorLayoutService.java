@@ -307,18 +307,18 @@ public class IndoorLayoutService {
                                 0.0,
                                 4.0,
                                 0.9,
-                                -65.47,
-                                2.0,
+                                -59.04,
+                                2.94,
                                 "indoor/ble/anchor_01/rssi",
                                 true
                         ),
                         new IndoorLayoutResponse.Anchor(
                                 "anchor_02",
                                 0.0,
-                                0.0,
+                                1.1,
                                 0.9,
-                                -66.95,
-                                2.0,
+                                -59.87,
+                                1.719,
                                 "indoor/ble/anchor_02/rssi",
                                 true
                         ),
@@ -327,7 +327,7 @@ public class IndoorLayoutService {
                                 7.5,
                                 0.0,
                                 0.9,
-                                -68.04,
+                                -66.0,
                                 2.0,
                                 "indoor/ble/anchor_03/rssi",
                                 true
@@ -337,8 +337,8 @@ public class IndoorLayoutService {
                                 7.5,
                                 4.0,
                                 0.9,
-                                -67.00,
-                                2.0,
+                                -64.51,
+                                1.154,
                                 "indoor/ble/anchor_04/rssi",
                                 true
                         )

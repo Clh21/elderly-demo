@@ -9,8 +9,8 @@
     "type" : "bedroom",
     "x" : 0.0,
     "y" : 0.0,
-    "width" : 2.5,
-    "height" : 2.5,
+    "width" : 3.7,
+    "height" : 1.9500000000000002,
     "color" : "#6366F1",
     "notes" : "Main sleeping and resting area"
   }, {
@@ -18,30 +18,40 @@
     "label" : "Toilet",
     "type" : "toilet",
     "x" : 0.0,
-    "y" : 2.5,
-    "width" : 2.5,
-    "height" : 1.5,
+    "y" : 2.0,
+    "width" : 3.7,
+    "height" : 2.0,
     "color" : "#0EA5E9",
     "notes" : "Toilet and hygiene area"
   }, {
     "id" : "living_room",
     "label" : "Living Room",
     "type" : "living_room",
-    "x" : 2.5,
-    "y" : 0.0,
-    "width" : 5.0,
-    "height" : 4.0,
+    "x" : 3.6999999999999997,
+    "y" : 1.9500000000000002,
+    "width" : 3.8000000000000003,
+    "height" : 2.0,
     "color" : "#F59E0B",
     "notes" : "Living and activity area"
+  }, {
+    "id" : "zone-mqdgfo5j-fa76",
+    "label" : "Kitchen",
+    "type" : "custom",
+    "x" : 3.6999999999999997,
+    "y" : 0.0,
+    "width" : 3.8000000000000003,
+    "height" : 1.9500000000000002,
+    "color" : "#10B981",
+    "notes" : ""
   } ],
   "furniture" : [ {
     "id" : "bed-01",
     "label" : "Bed",
     "type" : "bed",
-    "x" : 1.0,
-    "y" : 1.0,
-    "width" : 2.2,
-    "height" : 1.2,
+    "x" : 2.4000000000000004,
+    "y" : 1.05,
+    "width" : 1.1,
+    "height" : 0.65,
     "rotation" : 0.0,
     "occupancyTopic" : "indoor/furniture/bed-01/occupancy",
     "occupancyState" : "unknown"
@@ -49,9 +59,9 @@
     "id" : "sofa-01",
     "label" : "Sofa",
     "type" : "sofa",
-    "x" : 5.0,
-    "y" : 1.0,
-    "width" : 2.0,
+    "x" : 6.3500000000000005,
+    "y" : 2.9000000000000004,
+    "width" : 0.9500000000000001,
     "height" : 0.9,
     "rotation" : 0.0,
     "occupancyTopic" : "indoor/furniture/sofa-01/occupancy",
@@ -60,8 +70,8 @@
     "id" : "toilet-01",
     "label" : "Toilet",
     "type" : "toilet",
-    "x" : 1.0,
-    "y" : 3.25,
+    "x" : 2.6,
+    "y" : 3.1,
     "width" : 0.9,
     "height" : 0.8,
     "rotation" : 0.0,
@@ -73,17 +83,17 @@
     "x" : 0.0,
     "y" : 4.0,
     "z" : 0.9,
-    "txPower" : -65.47,
-    "pathLossExponent" : 2.0,
+    "txPower" : -59.04,
+    "pathLossExponent" : 2.94,
     "rssiTopic" : "indoor/ble/anchor_01/rssi",
     "enabled" : true
   }, {
     "id" : "anchor_02",
     "x" : 0.0,
-    "y" : 0.0,
+    "y" : 1.1,
     "z" : 0.9,
-    "txPower" : -66.95,
-    "pathLossExponent" : 2.0,
+    "txPower" : -59.87,
+    "pathLossExponent" : 1.719,
     "rssiTopic" : "indoor/ble/anchor_02/rssi",
     "enabled" : true
   }, {
@@ -91,7 +101,7 @@
     "x" : 7.5,
     "y" : 0.0,
     "z" : 0.9,
-    "txPower" : -68.04,
+    "txPower" : -66.0,
     "pathLossExponent" : 2.0,
     "rssiTopic" : "indoor/ble/anchor_03/rssi",
     "enabled" : true
@@ -100,8 +110,8 @@
     "x" : 7.5,
     "y" : 4.0,
     "z" : 0.9,
-    "txPower" : -67.00,
-    "pathLossExponent" : 2.0,
+    "txPower" : -64.51,
+    "pathLossExponent" : 1.154,
     "rssiTopic" : "indoor/ble/anchor_04/rssi",
     "enabled" : true
   } ],
@@ -111,5 +121,5 @@
     "smoothingAlpha" : 0.18,
     "maxReadingAgeSec" : 5.0
   },
-  "updatedAt" : "2026-06-13T12:00:00.000000Z"
+  "updatedAt" : "2026-06-14T07:20:39.174649600Z"
 }
