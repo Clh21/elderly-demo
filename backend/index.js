@@ -1496,7 +1496,7 @@ app.post('/api/watch/:watchId/ai-analysis', async (req, res) => {
     const [rows] = await pool.query(
       `SELECT minute_slot, heart_rate, temperature, eda, eda_label, wear_status, event_type
        FROM minute_readings
-       WHERE watch_id = ? AND minute_slot >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       WHERE watch_id = ? AND minute_slot >= CURDATE()
        ORDER BY minute_slot ASC`,
        [watchId]
     );
@@ -1529,19 +1529,19 @@ app.post('/api/watch/:watchId/ai-analysis', async (req, res) => {
     });
 
     const promptData = `
-手表ID: ${watchId}
-统计时间段: 过去24小时
-数据点数: ${rows.length} 分钟
-佩戴时长: ${wearMins} 分钟
-心率平均值: ${hrCount > 0 ? (hrSum/hrCount).toFixed(1) : '无'} bpm
-EDA平均值: ${edaCount > 0 ? (edaSum/edaCount).toFixed(2) : '无'} uS
-体温平均值: ${tempCount > 0 ? (tempSum/tempCount).toFixed(1) : '无'} °C
-记录的事件/活动状态: ${events.length > 0 ? events.join(', ') : '无记录'}
+手表ID: \${watchId}
+统计时间段: 当天（自今日0点起）
+数据点数: \${rows.length} 分钟
+佩戴时长: \${wearMins} 分钟
+心率平均值: \${hrCount > 0 ? (hrSum/hrCount).toFixed(1) : '无'} bpm
+EDA平均值: \${edaCount > 0 ? (edaSum/edaCount).toFixed(2) : '无'} uS
+体温平均值: \${tempCount > 0 ? (tempSum/tempCount).toFixed(1) : '无'} °C
+记录的事件/活动状态: \${events.length > 0 ? events.join(', ') : '无记录'}
 
 每小时趋势摘要:
-${hourlySummary.join('\n')}
+\${hourlySummary.join('\\n')}
 
-请作为一名专业的老年护理数据分析师，根据上述最近24小时的健康数据（包括心率、EDA、温度、佩戴状态、活动状态历史和静止持续时间的可用线索），进行一次全面的数据分析。指出任何异常情况，并给出简短的健康建议。格式尽量简洁明了。
+请作为一名专业的老年护理数据分析师，根据上述当天的健康数据（包括心率、EDA、温度、佩戴状态、活动状态历史和静止持续时间的可用线索），进行一次全面的数据分析。指出任何异常情况，并给出简短的健康建议。格式尽量简洁明了。
 `;
 
     const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
