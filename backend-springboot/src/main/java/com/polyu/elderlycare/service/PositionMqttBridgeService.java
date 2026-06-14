@@ -17,12 +17,15 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
  * Bridges indoor-position MQTT messages into the backend SSE stream.
  */
 @Service
+@DependsOn("localMqttBrokerService")
 public class PositionMqttBridgeService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionMqttBridgeService.class);
@@ -54,6 +57,7 @@ public class PositionMqttBridgeService {
     private String mqttPassword;
 
     private MqttAsyncClient mqttClient;
+    private volatile boolean stopping;
 
     public PositionMqttBridgeService(
             PositionStreamService positionStreamService,
@@ -73,11 +77,37 @@ public class PositionMqttBridgeService {
             return;
         }
 
+        connectIfNeeded();
+    }
+
+    /**
+     * Recovers when the backend starts before the MQTT broker.
+     */
+    @Scheduled(initialDelay = 5_000, fixedDelay = 10_000)
+    public void reconnectIfNeeded() {
+        if (!enabled || stopping || mqttClient != null && mqttClient.isConnected()) {
+            return;
+        }
+
+        connectIfNeeded();
+    }
+
+    private synchronized void connectIfNeeded() {
+        if (!enabled || stopping || mqttClient != null && mqttClient.isConnected()) {
+            return;
+        }
+
+        String brokerUri = String.format("tcp://%s:%d", mqttHost, mqttPort);
         try {
-            String brokerUri = String.format("tcp://%s:%d", mqttHost, mqttPort);
-            String clientId = String.format("%s-%s", mqttClientIdPrefix, UUID.randomUUID().toString().substring(0, 8));
-            mqttClient = new MqttAsyncClient(brokerUri, clientId);
-            mqttClient.setCallback(new PositionMqttCallback());
+            if (mqttClient == null) {
+                String clientId = String.format(
+                        "%s-%s",
+                        mqttClientIdPrefix,
+                        UUID.randomUUID().toString().substring(0, 8)
+                );
+                mqttClient = new MqttAsyncClient(brokerUri, clientId);
+                mqttClient.setCallback(new PositionMqttCallback());
+            }
 
             MqttConnectOptions options = new MqttConnectOptions();
             options.setAutomaticReconnect(true);
@@ -90,9 +120,13 @@ public class PositionMqttBridgeService {
             }
 
             mqttClient.connect(options).waitForCompletion();
-            log.info("Indoor positioning MQTT bridge connected to {} and subscribed topic {}", brokerUri, mqttTopic);
+            log.info("Indoor positioning MQTT bridge connected to {}", brokerUri);
         } catch (Exception ex) {
-            log.error("Failed to start indoor positioning MQTT bridge", ex);
+            log.warn(
+                    "Indoor positioning MQTT broker {} is unavailable; retrying in 10 seconds: {}",
+                    brokerUri,
+                    ex.getMessage()
+            );
         }
     }
 
@@ -101,6 +135,7 @@ public class PositionMqttBridgeService {
      */
     @PreDestroy
     public void stop() {
+        stopping = true;
         if (mqttClient == null) {
             return;
         }

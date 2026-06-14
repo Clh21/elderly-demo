@@ -30,6 +30,14 @@ app:
   http-logging:
     enabled: true
     max-body-length: 4000
+  mqtt-broker:
+    auto-start: ${MQTT_BROKER_AUTO_START:true}
+    host: ${MQTT_BROKER_HOST:127.0.0.1}
+    port: ${MQTT_BROKER_PORT:1883}
+    executable: ${MOSQUITTO_EXECUTABLE:C:/Program Files/Mosquitto/mosquitto.exe}
+    config-file: ${MOSQUITTO_CONFIG_FILE:../indoor-positioning/mosquitto.conf}
+    log-file: ${MOSQUITTO_LOG_FILE:./.runtime/mosquitto.log}
+    startup-timeout: ${MQTT_BROKER_STARTUP_TIMEOUT:5s}
   positioning:
     enabled: true
     mqtt-host: ${POSITIONING_MQTT_HOST:localhost}

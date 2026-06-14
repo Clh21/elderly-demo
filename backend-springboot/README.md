@@ -69,6 +69,9 @@ This backend includes an MQTT-to-SSE bridge for BLE indoor positioning.
 
 Config keys in `application.yml`:
 
+- `app.mqtt-broker.auto-start` (starts local Mosquitto with Spring Boot by default)
+- `app.mqtt-broker.executable`
+- `app.mqtt-broker.config-file`
 - `app.positioning.enabled`
 - `app.positioning.mqtt-host`
 - `app.positioning.mqtt-port`
@@ -76,6 +79,14 @@ Config keys in `application.yml`:
 - `app.positioning.mqtt-client-id`
 - `app.positioning.mqtt-username`
 - `app.positioning.mqtt-password`
+
+On Windows, starting Spring Boot now checks `127.0.0.1:1883` and starts
+Mosquitto automatically when needed. To use an external broker instead:
+
+```powershell
+$env:MQTT_BROKER_AUTO_START="false"
+$env:POSITIONING_MQTT_HOST="192.168.1.10"
+```
 
 ## Daily health analysis and alerts
 

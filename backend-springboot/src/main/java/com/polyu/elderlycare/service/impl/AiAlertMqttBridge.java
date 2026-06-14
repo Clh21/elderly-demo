@@ -21,10 +21,12 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 @Service
+@DependsOn("localMqttBrokerService")
 public class AiAlertMqttBridge {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AiAlertMqttBridge.class);
