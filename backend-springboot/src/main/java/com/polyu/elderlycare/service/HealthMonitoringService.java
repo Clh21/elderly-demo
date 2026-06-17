@@ -33,9 +33,14 @@ public class HealthMonitoringService {
     private static final double TEMP_CRITICAL_HIGH = 38.5;
 
     private final WatchDataRepository watchDataRepository;
+    private final HeartRateOverrideRegistry heartRateOverrideRegistry;
 
-    public HealthMonitoringService(WatchDataRepository watchDataRepository) {
+    public HealthMonitoringService(
+            WatchDataRepository watchDataRepository,
+            HeartRateOverrideRegistry heartRateOverrideRegistry
+    ) {
         this.watchDataRepository = watchDataRepository;
+        this.heartRateOverrideRegistry = heartRateOverrideRegistry;
     }
 
     @Transactional
@@ -50,7 +55,7 @@ public class HealthMonitoringService {
 
         WearContext wear = readWearContext(watchId);
         if (!wear.worn() || wear.charging()) {
-            resolveHealthSignalAlerts(residentId);
+            resolveHealthSignalAlerts(residentId, watchId);
             return;
         }
 
@@ -84,7 +89,7 @@ public class HealthMonitoringService {
                 evaluateDeviceState(residentId, watchId);
                 WearContext wear = readWearContext(watchId);
                 if (!wear.worn() || wear.charging()) {
-                    resolveHealthSignalAlerts(residentId);
+                    resolveHealthSignalAlerts(residentId, watchId);
                 } else {
                     evaluateHeartRate(residentId, watchId);
                     evaluateTemperature(residentId, watchId);
@@ -140,6 +145,10 @@ public class HealthMonitoringService {
     }
 
     private void evaluateHeartRate(Integer residentId, String watchId) {
+        if (heartRateOverrideRegistry.find(watchId).isPresent()) {
+            return;
+        }
+
         List<Double> values = watchDataRepository
                 .findRecentHeartRateReadings(watchId, LocalDateTime.now().minusMinutes(12))
                 .stream()
@@ -312,8 +321,20 @@ public class HealthMonitoringService {
         return new WearContext(worn, charging, changedAt);
     }
 
-    private void resolveHealthSignalAlerts(Integer residentId) {
-        watchDataRepository.resolveActiveAlertsByType(residentId, "heart_rate");
+    @Transactional
+    public void evaluateHeartRateNow(Integer residentId, String watchId) {
+        WearContext wear = readWearContext(watchId);
+        if (!wear.worn() || wear.charging()) {
+            watchDataRepository.resolveActiveAlertsByType(residentId, "heart_rate");
+            return;
+        }
+        evaluateHeartRate(residentId, watchId);
+    }
+
+    private void resolveHealthSignalAlerts(Integer residentId, String watchId) {
+        if (heartRateOverrideRegistry.find(watchId).isEmpty()) {
+            watchDataRepository.resolveActiveAlertsByType(residentId, "heart_rate");
+        }
         watchDataRepository.resolveActiveAlertsByType(residentId, "temperature");
         watchDataRepository.resolveActiveAlertsByType(residentId, "eda");
     }

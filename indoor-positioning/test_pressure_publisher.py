@@ -26,6 +26,11 @@ def build_payload(location: str, occupied: bool) -> dict:
     return {
         "location": location,
         "occupied": occupied,
+        "x": float(furniture["x"]),
+        "y": float(furniture["y"]),
+        "label": str(furniture.get("label", location)),
+        "room": str(furniture.get("room", "")),
+        "coordinate_type": "center",
         "raw_adc": raw_adc,
         "weight_kg": round(weight_kg, 1),
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),

@@ -13,6 +13,7 @@ import {
   formatIndoorTimestamp,
   normalizeIndoorLayout,
   normalizeIndoorPositionPayload,
+  shouldAcceptIndoorPositionUpdate,
 } from '../lib/indoorRooms';
 
 const DEFAULT_MODEL_URL = '/models/elderly.glb';
@@ -68,7 +69,9 @@ const ElderModel3D = () => {
   useEffect(() => {
     const normalized = normalizeIndoorPositionPayload(latestQuery.data, layout);
     if (normalized) {
-      setLivePosition(normalized);
+      setLivePosition((current) => (
+        shouldAcceptIndoorPositionUpdate(current, normalized) ? normalized : current
+      ));
     }
   }, [latestQuery.data, layout]);
 
@@ -86,7 +89,9 @@ const ElderModel3D = () => {
         if (!normalized) {
           return;
         }
-        setLivePosition(normalized);
+        setLivePosition((current) => (
+          shouldAcceptIndoorPositionUpdate(current, normalized) ? normalized : current
+        ));
         setStreamConnected(true);
       },
       onError: () => {

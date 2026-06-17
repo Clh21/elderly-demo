@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polyu.elderlycare.auth.AccessScopeService;
 import com.polyu.elderlycare.exception.ResourceNotFoundException;
 import com.polyu.elderlycare.repository.WatchDataRepository;
+import com.polyu.elderlycare.service.HeartRateOverrideRegistry;
 import com.polyu.elderlycare.service.HealthMonitoringService;
 import com.polyu.elderlycare.service.WatchService;
 import com.polyu.elderlycare.service.WatchUpdateStreamService;
@@ -83,6 +84,7 @@ public class WatchServiceImpl implements WatchService {
     private final AccessScopeService accessScopeService;
     private final HealthMonitoringService healthMonitoringService;
     private final WatchUpdateStreamService watchUpdateStreamService;
+    private final HeartRateOverrideRegistry heartRateOverrideRegistry;
     private volatile boolean edaBaselineStorageReady = false;
 
     public WatchServiceImpl(
@@ -90,13 +92,15 @@ public class WatchServiceImpl implements WatchService {
             ObjectMapper objectMapper,
             AccessScopeService accessScopeService,
             HealthMonitoringService healthMonitoringService,
-            WatchUpdateStreamService watchUpdateStreamService
+            WatchUpdateStreamService watchUpdateStreamService,
+            HeartRateOverrideRegistry heartRateOverrideRegistry
     ) {
         this.watchDataRepository = watchDataRepository;
         this.objectMapper = objectMapper;
         this.accessScopeService = accessScopeService;
         this.healthMonitoringService = healthMonitoringService;
         this.watchUpdateStreamService = watchUpdateStreamService;
+        this.heartRateOverrideRegistry = heartRateOverrideRegistry;
     }
 
     @Override
@@ -110,11 +114,14 @@ public class WatchServiceImpl implements WatchService {
                 .map(row -> "demo".equalsIgnoreCase(asString(row.get("status"))))
                 .orElse(false);
         Map<String, Object> edaBaselineProfile = watchDataRepository.findEdaBaselineProfile(watchId).orElse(null);
+        Optional<HeartRateOverrideRegistry.HeartRateOverride> heartRateOverride =
+                heartRateOverrideRegistry.find(watchId);
 
         Optional<Map<String, Object>> latestRow = watchDataRepository.findLatestMinuteReading(watchId);
         if (latestRow.isEmpty()) {
             Map<String, Object> emptySummary = buildEmptyWatchSummary(isDemoWatch);
             putEdaBaselineSummary(emptySummary, edaBaselineProfile);
+            applyHeartRateOverride(emptySummary, heartRateOverride);
             return emptySummary;
         }
 
@@ -182,6 +189,8 @@ public class WatchServiceImpl implements WatchService {
         response.put("heartRate", heartRate);
         response.put("heartRateStatus", heartRate == null ? "unavailable" : getStatusFromValue("heartRate", heartRate));
         response.put("heartRateTimestamp", pickRecordedTimestamp(latestHeartRate));
+        response.put("heartRateSimulated", false);
+        response.put("heartRateSource", heartRate == null ? "unavailable" : "watch");
         response.put("temperature", bodyTemperature);
         response.put("bodyTemperature", bodyTemperature);
         response.put("wristTemperature", wristTemperature);
@@ -218,6 +227,7 @@ public class WatchServiceImpl implements WatchService {
         response.put("edaHistory", edaHistoryRows.isEmpty() ? List.of() : buildEdaHistory(edaHistoryRows));
         response.put("wearHistory", wearHistoryRows.isEmpty() ? List.of() : buildWearHistory(wearHistoryRows));
         response.put("ecgHistory", ecgSummary.get("ecgHistory"));
+        applyHeartRateOverride(response, heartRateOverride);
         return response;
     }
 
@@ -1001,6 +1011,8 @@ public class WatchServiceImpl implements WatchService {
         response.put("heartRate", null);
         response.put("heartRateStatus", "unavailable");
         response.put("heartRateTimestamp", null);
+        response.put("heartRateSimulated", false);
+        response.put("heartRateSource", "unavailable");
         response.put("temperature", null);
         response.put("temperatureStatus", "unavailable");
         response.put("bodyTemperature", null);
@@ -1044,6 +1056,23 @@ public class WatchServiceImpl implements WatchService {
         response.put("wearHistory", List.of());
         response.put("ecgHistory", List.of());
         return response;
+    }
+
+    private void applyHeartRateOverride(
+            Map<String, Object> response,
+            Optional<HeartRateOverrideRegistry.HeartRateOverride> heartRateOverride
+    ) {
+        if (heartRateOverride.isEmpty()) {
+            return;
+        }
+
+        HeartRateOverrideRegistry.HeartRateOverride override = heartRateOverride.get();
+        response.put("dataAvailable", true);
+        response.put("heartRate", override.bpm());
+        response.put("heartRateStatus", "critical");
+        response.put("heartRateTimestamp", override.activatedAt().toString());
+        response.put("heartRateSimulated", true);
+        response.put("heartRateSource", "simulation");
     }
 
     private List<Map<String, Object>> buildHistory(List<Map<String, Object>> rows, String valueKey) {

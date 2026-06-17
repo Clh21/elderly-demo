@@ -18,10 +18,12 @@ Expected payload example:
 
 from __future__ import annotations
 
+import csv
 from collections import deque
 import itertools
 import json
 import math
+from pathlib import Path
 import threading
 import time
 from dataclasses import dataclass
@@ -76,6 +78,12 @@ from positioning_config import (
     PROLONGED_STILLNESS_MIN_CONFIDENCE,
     RELAXED_ANCHOR_SYNC_WINDOW_SEC,
     RSSI_IQR_MULTIPLIER,
+    RSSI_FINGERPRINT_BLEND,
+    RSSI_FINGERPRINT_CSV,
+    RSSI_FINGERPRINT_MAX_RMS_DB,
+    RSSI_FINGERPRINT_MIN_ANCHORS,
+    RSSI_FINGERPRINT_TOP_K,
+    RSSI_FINGERPRINT_WEIGHT_POWER,
     ROOM_BOUNDS_MARGIN_M,
     SMOOTHING_ALPHA_MAX,
     SMOOTHING_ALPHA_MAX_DELTA_PER_UPDATE,
@@ -107,6 +115,7 @@ from positioning_config import (
     USE_POSITION_AGGREGATION,
     USE_POSITION_SMOOTHING,
     USE_PROLONGED_STILLNESS_ALERT,
+    USE_RSSI_FINGERPRINT_FUSION,
     USE_RSSI_IQR_FILTER,
     USE_SOFT_PRESSURE_FUSION,
     USE_STATIONARY_HOLD,
@@ -136,9 +145,19 @@ class RssiSample:
 class PressureState:
     location: str
     occupied: bool
+    x: float
+    y: float
+    label: str
     raw_adc: int
     weight_kg: float
     updated_at: float
+
+
+@dataclass
+class RssiFingerprint:
+    x: float
+    y: float
+    rssi_by_anchor: Dict[str, float]
 
 
 class IndoorPositioningServer:
@@ -186,6 +205,7 @@ class IndoorPositioningServer:
         self.data_ready = threading.Event()
         self.pending_anchor_samples: Dict[str, float] = {}
         self.batch_started_at: Optional[float] = None
+        self.rssi_fingerprints = self.load_rssi_fingerprints()
 
         xs = [float(cfg["x"]) for cfg in ANCHORS.values()]
         ys = [float(cfg["y"]) for cfg in ANCHORS.values()]
@@ -301,11 +321,30 @@ class IndoorPositioningServer:
         occupied = bool(payload.get("occupied", False))
         raw_adc = int(payload.get("raw_adc", 0))
         weight_kg = float(payload.get("weight_kg", 0.0))
+        furniture = FURNITURE[location]
+
+        try:
+            x = float(payload.get("x", furniture["x"]))
+            y = float(payload.get("y", furniture["y"]))
+        except (TypeError, ValueError):
+            x = float(furniture["x"])
+            y = float(furniture["y"])
+
+        if not math.isfinite(x) or not math.isfinite(y):
+            x = float(furniture["x"])
+            y = float(furniture["y"])
+
+        x = self.clamp(x, self.strict_min_x, self.strict_max_x)
+        y = self.clamp(y, self.strict_min_y, self.strict_max_y)
+        label = str(payload.get("label") or furniture.get("label", location))
 
         now = time.time()
         self.pressure_states[location] = PressureState(
             location=location,
             occupied=occupied,
+            x=x,
+            y=y,
+            label=label,
             raw_adc=raw_adc,
             weight_kg=weight_kg,
             updated_at=now,
@@ -315,6 +354,7 @@ class IndoorPositioningServer:
             status = "OCCUPIED" if occupied else "vacant"
             print(
                 f"[PRESSURE] {location} {status} | "
+                f"center=({x:.2f},{y:.2f}) "
                 f"adc={raw_adc} weight={weight_kg:.1f}kg"
             )
 
@@ -324,11 +364,40 @@ class IndoorPositioningServer:
             self.pressure_override_location = location
             self.pressure_override_expires_at = now + 3.0
         elif self.pressure_override_location == location and not occupied:
-            if now >= self.pressure_override_expires_at:
-                self.pressure_override_active = False
-                self.pressure_override_location = None
+            self.pressure_override_active = False
+            self.pressure_override_location = None
+            self.pressure_override_expires_at = 0.0
+            self.last_position = None
+            self.output_position = None
+            self.position_window.clear()
+            self.stationary_hold_active = False
+            self.stationary_count = 0
+            self.release_count = 0
+            if VERBOSE_LOGGING:
+                print(f"[PRESSURE] {location} released; BLE positioning resumed")
 
         self.data_ready.set()
+
+    def get_pressure_override_target(
+        self,
+    ) -> Optional[Tuple[float, float, str]]:
+        location = self.pressure_override_location
+        if not location:
+            return None
+
+        state = self.pressure_states.get(location)
+        if state is not None and state.occupied:
+            return state.x, state.y, state.label
+
+        furniture = FURNITURE.get(location)
+        if furniture is None:
+            return None
+
+        return (
+            float(furniture["x"]),
+            float(furniture["y"]),
+            str(furniture.get("label", location)),
+        )
 
     def wait_for_position_batch(
         self,
@@ -397,9 +466,83 @@ class IndoorPositioningServer:
     def clamp(value: float, min_value: float, max_value: float) -> float:
         return max(min_value, min(value, max_value))
 
-    def get_fresh_anchor_data(self) -> List[Tuple[str, float, float, float, float]]:
+    @staticmethod
+    def iqr_filtered_values(values: List[float]) -> List[float]:
+        if len(values) < 4:
+            return list(values)
+
+        ordered = np.array(sorted(float(value) for value in values), dtype=float)
+        q1 = float(np.percentile(ordered, 25))
+        q3 = float(np.percentile(ordered, 75))
+        iqr = q3 - q1
+        lower = q1 - RSSI_IQR_MULTIPLIER * iqr
+        upper = q3 + RSSI_IQR_MULTIPLIER * iqr
+        filtered = [float(value) for value in ordered if lower <= value <= upper]
+        return filtered or [float(value) for value in ordered]
+
+    def resolve_rssi_fingerprint_csv(self) -> Optional[Path]:
+        configured = str(RSSI_FINGERPRINT_CSV).strip()
+        if configured:
+            path = Path(configured)
+            if not path.is_absolute():
+                path = Path(__file__).resolve().parent / path
+            return path
+
+        candidates = sorted(
+            Path(__file__).resolve().parent.glob("quick_room_calibration_*.csv"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+    def load_rssi_fingerprints(self) -> List[RssiFingerprint]:
+        if not USE_RSSI_FINGERPRINT_FUSION:
+            return []
+
+        path = self.resolve_rssi_fingerprint_csv()
+        if path is None or not path.exists():
+            if VERBOSE_LOGGING:
+                print("[FP] No quick-room calibration CSV found; fingerprint fusion disabled.")
+            return []
+
+        grouped: Dict[Tuple[float, float], Dict[str, List[float]]] = {}
+        try:
+            with path.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                required = {"point_x", "point_y", "anchor", "rssi_dbm"}
+                if not required.issubset(set(reader.fieldnames or [])):
+                    print(f"[FP] Calibration CSV missing columns: {path}")
+                    return []
+
+                for row in reader:
+                    anchor_id = str(row["anchor"])
+                    if anchor_id not in ANCHORS:
+                        continue
+                    point = (float(row["point_x"]), float(row["point_y"]))
+                    rssi = float(row["rssi_dbm"])
+                    grouped.setdefault(point, {}).setdefault(anchor_id, []).append(rssi)
+        except (OSError, ValueError) as exc:
+            print(f"[FP] Failed to read calibration CSV {path}: {exc}")
+            return []
+
+        fingerprints: List[RssiFingerprint] = []
+        min_anchors = max(1, int(RSSI_FINGERPRINT_MIN_ANCHORS))
+        for (x, y), by_anchor in grouped.items():
+            medians = {
+                anchor_id: float(np.median(np.array(self.iqr_filtered_values(values), dtype=float)))
+                for anchor_id, values in by_anchor.items()
+                if values
+            }
+            if len(medians) >= min_anchors:
+                fingerprints.append(RssiFingerprint(x=x, y=y, rssi_by_anchor=medians))
+
+        if VERBOSE_LOGGING:
+            print(f"[FP] Loaded {len(fingerprints)} RSSI fingerprint point(s) from {path.name}")
+        return fingerprints
+
+    def get_fresh_anchor_data(self) -> List[Tuple[str, float, float, float, float, float]]:
         now = time.time()
-        data: List[Tuple[str, float, float, float, float]] = []
+        data: List[Tuple[str, float, float, float, float, float]] = []
 
         for anchor_id, cfg in ANCHORS.items():
             reading = self.readings.get(anchor_id)
@@ -416,7 +559,14 @@ class IndoorPositioningServer:
             )
             distance = self.clamp(distance, MIN_DISTANCE_M, MAX_DISTANCE_M)
             data.append(
-                (anchor_id, float(cfg["x"]), float(cfg["y"]), distance, reading.updated_at)
+                (
+                    anchor_id,
+                    float(cfg["x"]),
+                    float(cfg["y"]),
+                    distance,
+                    reading.updated_at,
+                    rssi,
+                )
             )
 
         return data
@@ -425,13 +575,13 @@ class IndoorPositioningServer:
         self,
         allowed_anchor_ids: Optional[Set[str]] = None,
         since: Optional[float] = None,
-    ) -> Tuple[List[Tuple[str, float, float, float, float, str]], Dict[str, int]]:
+    ) -> Tuple[List[Tuple[str, float, float, float, float, str, float]], Dict[str, int]]:
         now = time.time()
         window_sec = max(1.0, float(SNAPSHOT_WINDOW_SEC))
         window_start = now - window_sec
         sample_start = max(window_start, since) if since is not None else window_start
 
-        data: List[Tuple[str, float, float, float, float, str]] = []
+        data: List[Tuple[str, float, float, float, float, str, float]] = []
         sample_counts: Dict[str, int] = {}
 
         for anchor_id, cfg in ANCHORS.items():
@@ -502,7 +652,15 @@ class IndoorPositioningServer:
             )
             distance = self.clamp(distance, MIN_DISTANCE_M, MAX_DISTANCE_M)
             data.append(
-                (anchor_id, float(cfg["x"]), float(cfg["y"]), distance, updated_at, time_source)
+                (
+                    anchor_id,
+                    float(cfg["x"]),
+                    float(cfg["y"]),
+                    distance,
+                    updated_at,
+                    time_source,
+                    rssi,
+                )
             )
 
         return data, sample_counts
@@ -636,7 +794,7 @@ class IndoorPositioningServer:
         self,
         allowed_anchor_ids: Optional[Set[str]] = None,
         since: Optional[float] = None,
-    ) -> Tuple[List[List[Tuple[str, float, float, float, float]]], Dict[str, int], int]:
+    ) -> Tuple[List[List[Tuple[str, float, float, float, float, str, float]]], Dict[str, int], int]:
         now = time.time()
         window_sec = max(1.0, float(SNAPSHOT_WINDOW_SEC))
         window_start = now - window_sec
@@ -700,7 +858,7 @@ class IndoorPositioningServer:
                     latest_by_slot[aligned_slot] = sample
             aligned_samples_by_anchor[anchor_id] = sorted(latest_by_slot.items())
 
-        frames: List[List[Tuple[str, float, float, float, float]]] = []
+        frames: List[List[Tuple[str, float, float, float, float, str, float]]] = []
         min_frame_anchors = max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))
         slot_tolerance = max(0, int(FRAME_MATCH_TOLERANCE_SLOTS))
         center_slots = sorted(
@@ -729,7 +887,7 @@ class IndoorPositioningServer:
             if len(grouped) < min_frame_anchors:
                 continue
 
-            frame: List[Tuple[str, float, float, float, float]] = []
+            frame: List[Tuple[str, float, float, float, float, str, float]] = []
             frame_key_parts: List[Tuple[str, int, float]] = []
             for anchor_id, (slot_id, sample) in grouped.items():
                 cfg = ANCHORS[anchor_id]
@@ -753,6 +911,7 @@ class IndoorPositioningServer:
                         distance,
                         float(timestamp_s),
                         str(sample.time_source),
+                        float(sample.rssi),
                     )
                 )
                 frame_key_parts.append((anchor_id, slot_id, round(sample.received_at, 6)))
@@ -769,7 +928,7 @@ class IndoorPositioningServer:
 
     @staticmethod
     def is_time_synchronized(
-        anchor_data: List[Tuple[str, float, float, float, float, str]],
+        anchor_data: List[Tuple[str, float, float, float, float, str, float]],
         limit_override_sec: Optional[float] = None,
     ) -> Tuple[bool, float]:
         if len(anchor_data) < 3:
@@ -799,14 +958,23 @@ class IndoorPositioningServer:
         float,
         Dict[str, int],
         List[Tuple[str, float, float, float]],
+        Dict[str, float],
         str,
         float,
     ]:
+        fallback_since = since
+        if fallback_since is None:
+            fallback_since = time.time() - max(
+                0.1,
+                float(RELAXED_ANCHOR_SYNC_WINDOW_SEC),
+            )
+
         anchor_data, sample_counts = self.get_snapshot_anchor_data(
             allowed_anchor_ids=allowed_anchor_ids,
-            since=since,
+            since=fallback_since,
         )
-        if len(anchor_data) < 3:
+        min_anchor_count = max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))
+        if len(anchor_data) < min_anchor_count:
             online = [item[0] for item in anchor_data]
             return (
                 None,
@@ -815,15 +983,20 @@ class IndoorPositioningServer:
                 float("inf"),
                 sample_counts,
                 [],
-                f"fallback snapshot anchors={len(online)} -> {online}",
+                {},
+                (
+                    f"fallback snapshot anchors={len(online)} "
+                    f"(< {min_anchor_count}) -> {online}"
+                ),
                 0.0,
             )
 
         synchronized_subset, span = self.select_best_synchronized_subset(
             anchor_data,
             max_span_sec=RELAXED_ANCHOR_SYNC_WINDOW_SEC,
+            min_anchor_count=min_anchor_count,
         )
-        if len(synchronized_subset) < 3:
+        if len(synchronized_subset) < min_anchor_count:
             return (
                 None,
                 float("inf"),
@@ -831,6 +1004,7 @@ class IndoorPositioningServer:
                 span,
                 sample_counts,
                 [],
+                {},
                 (
                     f"fallback snapshot span too large: {span:.2f}s "
                     f"(limit={RELAXED_ANCHOR_SYNC_WINDOW_SEC:.2f}s)"
@@ -839,7 +1013,9 @@ class IndoorPositioningServer:
             )
 
         latest_sample_ts = max(float(item[4]) for item in synchronized_subset)
-        if latest_sample_ts <= self.last_published_fallback_sample_ts + 1e-6:
+        fallback_age_sec = time.time() - latest_sample_ts
+        max_fallback_age_sec = max(0.1, float(MAX_SYNC_FRAME_AGE_SEC))
+        if fallback_age_sec > max_fallback_age_sec:
             return (
                 None,
                 float("inf"),
@@ -847,11 +1023,33 @@ class IndoorPositioningServer:
                 span,
                 sample_counts,
                 [],
+                {},
+                (
+                    f"fallback snapshot is stale: age={fallback_age_sec:.2f}s "
+                    f"(limit={max_fallback_age_sec:.2f}s)"
+                ),
+                latest_sample_ts,
+            )
+
+        last_published_sample_ts = max(
+            self.last_published_fallback_sample_ts,
+            self.last_published_sync_frame_ts,
+        )
+        if latest_sample_ts <= last_published_sample_ts + 1e-6:
+            return (
+                None,
+                float("inf"),
+                "unknown",
+                span,
+                sample_counts,
+                [],
+                {},
                 "fallback snapshot has no newer anchor sample",
                 latest_sample_ts,
             )
 
         anchor_distances = [item[:4] for item in synchronized_subset]
+        rssi_by_anchor = {str(item[0]): float(item[6]) for item in synchronized_subset}
         position, residual_rms_m, solver, used_anchors = self.solve_anchor_distances(
             anchor_distances
         )
@@ -863,6 +1061,7 @@ class IndoorPositioningServer:
                 span,
                 sample_counts,
                 [],
+                rssi_by_anchor,
                 "fallback trilateration failed",
                 latest_sample_ts,
             )
@@ -877,24 +1076,27 @@ class IndoorPositioningServer:
             span,
             sample_counts,
             used_anchors,
+            rssi_by_anchor,
             "",
             latest_sample_ts,
         )
 
     @staticmethod
     def select_best_synchronized_subset(
-        anchor_data: List[Tuple[str, float, float, float, float, str]],
+        anchor_data: List[Tuple[str, float, float, float, float, str, float]],
         max_span_sec: float,
-    ) -> Tuple[List[Tuple[str, float, float, float, float, str]], float]:
-        """Prefer four fresh anchors, otherwise use the freshest tight three-anchor subset."""
-        if len(anchor_data) < 3:
+        min_anchor_count: int = 3,
+    ) -> Tuple[List[Tuple[str, float, float, float, float, str, float]], float]:
+        """Prefer the largest fresh anchor set within the allowed time span."""
+        min_size = max(3, int(min_anchor_count))
+        if len(anchor_data) < min_size:
             return [], float("inf")
 
         limit = max(0.0, float(max_span_sec))
         max_size = min(4, len(anchor_data))
         best_rejected_span = float("inf")
 
-        for subset_size in range(max_size, 2, -1):
+        for subset_size in range(max_size, min_size - 1, -1):
             candidates = []
             for subset in itertools.combinations(anchor_data, subset_size):
                 timestamps = [float(item[4]) for item in subset]
@@ -918,10 +1120,111 @@ class IndoorPositioningServer:
         return [], best_rejected_span
 
     @staticmethod
-    def frame_timestamp(frame: List[Tuple[str, float, float, float, float, str]]) -> float:
+    def frame_timestamp(
+        frame: List[Tuple[str, float, float, float, float, str, float]]
+    ) -> float:
         if not frame:
             return 0.0
         return max(float(item[4]) for item in frame)
+
+    def estimate_position_from_fingerprint(
+        self,
+        rssi_by_anchor: Dict[str, float],
+    ) -> Tuple[Optional[Tuple[float, float]], float, int, Optional[Tuple[float, float]]]:
+        if not self.rssi_fingerprints or not USE_RSSI_FINGERPRINT_FUSION:
+            return None, float("inf"), 0, None
+
+        min_anchors = max(1, int(RSSI_FINGERPRINT_MIN_ANCHORS))
+        scored: List[Tuple[float, RssiFingerprint, int]] = []
+        for fingerprint in self.rssi_fingerprints:
+            common = [
+                anchor_id
+                for anchor_id in rssi_by_anchor
+                if anchor_id in fingerprint.rssi_by_anchor
+            ]
+            if len(common) < min_anchors:
+                continue
+
+            rms_db = math.sqrt(
+                sum(
+                    (float(rssi_by_anchor[anchor_id]) - fingerprint.rssi_by_anchor[anchor_id])
+                    ** 2
+                    for anchor_id in common
+                )
+                / len(common)
+            )
+            scored.append((float(rms_db), fingerprint, len(common)))
+
+        if not scored:
+            return None, float("inf"), 0, None
+
+        scored.sort(key=lambda item: item[0])
+        best_rms, best_fingerprint, best_count = scored[0]
+        if best_rms > max(0.1, float(RSSI_FINGERPRINT_MAX_RMS_DB)):
+            return None, best_rms, best_count, (best_fingerprint.x, best_fingerprint.y)
+
+        top_k = max(1, int(RSSI_FINGERPRINT_TOP_K))
+        power = max(0.1, float(RSSI_FINGERPRINT_WEIGHT_POWER))
+        weighted_x = 0.0
+        weighted_y = 0.0
+        weight_sum = 0.0
+        for rms_db, fingerprint, _ in scored[:top_k]:
+            weight = 1.0 / (max(1.0, rms_db) ** power)
+            weighted_x += weight * fingerprint.x
+            weighted_y += weight * fingerprint.y
+            weight_sum += weight
+
+        if weight_sum <= 1e-9:
+            return None, best_rms, best_count, (best_fingerprint.x, best_fingerprint.y)
+
+        return (
+            weighted_x / weight_sum,
+            weighted_y / weight_sum,
+        ), best_rms, best_count, (best_fingerprint.x, best_fingerprint.y)
+
+    def apply_rssi_fingerprint_fusion(
+        self,
+        x: float,
+        y: float,
+        confidence: float,
+        solver: str,
+        residual_rms_m: float,
+        rssi_by_anchor: Dict[str, float],
+    ) -> Tuple[float, float, float, str, float]:
+        fingerprint_position, rms_db, anchor_count, best_point = (
+            self.estimate_position_from_fingerprint(rssi_by_anchor)
+        )
+        if fingerprint_position is None:
+            if VERBOSE_LOGGING and math.isfinite(rms_db):
+                print(
+                    "[FP] No fingerprint correction: "
+                    f"best_rms={rms_db:.1f}dB, anchors={anchor_count}"
+                )
+            return x, y, confidence, solver, residual_rms_m
+
+        blend = self.clamp(float(RSSI_FINGERPRINT_BLEND), 0.0, 1.0)
+        fx, fy = self.bound_position(fingerprint_position[0], fingerprint_position[1])
+        fused_x = (1.0 - blend) * x + blend * fx
+        fused_y = (1.0 - blend) * y + blend * fy
+        fused_confidence = max(confidence, self.clamp(1.0 - rms_db / 12.0, 0.55, 0.95))
+        fused_residual = residual_rms_m * (1.0 - 0.35 * blend)
+        fused_solver = f"fingerprint({solver})"
+
+        if VERBOSE_LOGGING:
+            best = (
+                f"best=({best_point[0]:.2f},{best_point[1]:.2f})"
+                if best_point is not None
+                else "best=unknown"
+            )
+            print(
+                "[FP] RSSI fingerprint correction: "
+                f"rms={rms_db:.1f}dB, anchors={anchor_count}, {best}, "
+                f"fp=({fx:.2f},{fy:.2f}), "
+                f"ble=({x:.2f},{y:.2f}), "
+                f"out=({fused_x:.2f},{fused_y:.2f})"
+            )
+
+        return fused_x, fused_y, fused_confidence, fused_solver, fused_residual
 
     def smooth_position(
         self, x: float, y: float, confidence: float = 0.5
@@ -1046,13 +1349,15 @@ class IndoorPositioningServer:
         large_jump_threshold = max(0.1, float(THREE_ANCHOR_LARGE_JUMP_M))
         required_updates = max(1, int(THREE_ANCHOR_JUMP_CONFIRM_UPDATES))
         if previous is None:
-            movement = float("inf")
+            self.pending_three_anchor_position = None
+            self.pending_three_anchor_count = 0
+            return False
+        else:
+            movement = math.hypot(x - previous[0], y - previous[1])
             required_updates = max(
                 required_updates,
                 max(1, int(THREE_ANCHOR_INITIAL_CONFIRM_UPDATES)),
             )
-        else:
-            movement = math.hypot(x - previous[0], y - previous[1])
 
         if movement <= large_jump_threshold:
             self.pending_three_anchor_position = None
@@ -1189,13 +1494,11 @@ class IndoorPositioningServer:
         if not (self.pressure_override_active and self.pressure_override_location):
             return x, y, confidence, solver, residual_rms_m, anchor_distances, None, "ble"
 
-        furniture = FURNITURE.get(self.pressure_override_location)
-        if furniture is None:
+        pressure_target = self.get_pressure_override_target()
+        if pressure_target is None:
             return x, y, confidence, solver, residual_rms_m, anchor_distances, None, "ble"
 
-        fx = float(furniture["x"])
-        fy = float(furniture["y"])
-        semantic = str(furniture.get("label", self.pressure_override_location))
+        fx, fy, semantic = pressure_target
 
         if not USE_SOFT_PRESSURE_FUSION:
             return fx, fy, 1.0, "pressure", 0.0, [], semantic, "pressure"
@@ -1308,7 +1611,7 @@ class IndoorPositioningServer:
             "activity_state": activity_state,
             "semantic_location": semantic_location,
             "source": source,
-            "ts": datetime.now().isoformat(timespec="seconds"),
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
         }
         self.client.publish(
             PRELIMINARY_ALERT_TOPIC,
@@ -1438,9 +1741,13 @@ class IndoorPositioningServer:
                 (full_position, full_residual, "trilateration", list(anchor_distances))
             )
 
-        # For exactly 4 anchors, also evaluate every 3-anchor subset.
-        # This rejects one outlier anchor while keeping 3 valid ones.
-        if len(anchor_distances) == 4:
+        force_all_anchors = int(MIN_ANCHORS_PER_SYNC_FRAME) >= 4
+
+        # For exactly 4 anchors, optionally evaluate every 3-anchor subset.
+        # This rejects one outlier anchor while keeping 3 valid ones. In
+        # forced-4-anchor mode, keep the full set so the published coordinate
+        # is truly calculated from all four ESP32 nodes.
+        if len(anchor_distances) == 4 and not force_all_anchors:
             for subset in itertools.combinations(anchor_distances, 3):
                 subset_list = list(subset)
                 subset_position = self.trilaterate_nonlinear(subset_list)
@@ -1562,7 +1869,7 @@ class IndoorPositioningServer:
             "source": source,
             "activity_state": activity_state,
             "stationary_hold": stationary_hold,
-            "ts": datetime.now().isoformat(timespec="seconds"),
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
         }
         self.client.publish(MQTT_POSITION_TOPIC, json.dumps(payload), qos=0)
 
@@ -1618,7 +1925,10 @@ class IndoorPositioningServer:
                 f"latest_only={USE_LATEST_SYNC_FRAME_ONLY}, "
                 f"max_frame_age={MAX_SYNC_FRAME_AGE_SEC:.1f}s"
             )
-        print("[SYS] Waiting for snapshot data from at least 3 anchors...")
+        print(
+            "[SYS] Waiting for snapshot data from at least "
+            f"{max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))} anchors..."
+        )
         if FURNITURE:
             print(f"[SYS] Pressure fusion enabled for furniture: {list(FURNITURE.keys())}")
 
@@ -1640,6 +1950,7 @@ class IndoorPositioningServer:
                 sync_frames = 0
                 sample_counts: Dict[str, int] = {}
                 anchor_distances: List[Tuple[str, float, float, float]] = []
+                rssi_by_anchor: Dict[str, float] = {}
 
                 if USE_PACKET_SLOT_SYNC:
                     strict_required_frames = max(1, int(MIN_SYNC_FRAMES_PER_UPDATE))
@@ -1648,10 +1959,7 @@ class IndoorPositioningServer:
                             frames,
                             sample_counts,
                             samples_with_slot,
-                        ) = self.get_packet_synced_anchor_frames(
-                            allowed_anchor_ids=pending_anchor_ids,
-                            since=batch_started_at,
-                        )
+                        ) = self.get_packet_synced_anchor_frames()
 
                     min_frame_anchors = max(3, int(MIN_ANCHORS_PER_SYNC_FRAME))
                     frames = [frame for frame in frames if len(frame) >= min_frame_anchors]
@@ -1710,6 +2018,9 @@ class IndoorPositioningServer:
                             # anchors that use local millis() fallback instead of NTP.
                             frame_span = 0.0
                             frame_anchor_distances = [item[:4] for item in frame]
+                            frame_rssi_by_anchor = {
+                                str(item[0]): float(item[6]) for item in frame
+                            }
 
                             (
                                 frame_position,
@@ -1729,6 +2040,7 @@ class IndoorPositioningServer:
                             solved_spans.append(frame_span)
                             solver_votes[frame_solver] = solver_votes.get(frame_solver, 0) + 1
                             anchor_distances = frame_anchor_distances
+                            rssi_by_anchor = frame_rssi_by_anchor
 
                         sync_frames = len(solved_positions)
                         can_use_packet_result = sync_frames >= strict_required_frames
@@ -1774,10 +2086,7 @@ class IndoorPositioningServer:
                             )
 
                     if position is None:
-                        if (
-                            allow_three_anchor_fallback
-                            and USE_TIME_SYNC_FALLBACK_AFTER_RELAX
-                        ):
+                        if USE_TIME_SYNC_FALLBACK_AFTER_RELAX:
                             (
                                 fallback_position,
                                 fallback_residual,
@@ -1785,11 +2094,12 @@ class IndoorPositioningServer:
                                 fallback_span,
                                 fallback_sample_counts,
                                 fallback_anchor_distances,
+                                fallback_rssi_by_anchor,
                                 fallback_reason,
                                 fallback_sample_ts,
                             ) = self.try_relaxed_snapshot_fallback(
-                                allowed_anchor_ids=pending_anchor_ids,
-                                since=batch_started_at,
+                                allowed_anchor_ids=None,
+                                since=None,
                             )
 
                             if fallback_position is not None:
@@ -1800,11 +2110,12 @@ class IndoorPositioningServer:
                                 snapshot_spread = 0.0
                                 sync_frames = 1
                                 anchor_distances = fallback_anchor_distances
+                                rssi_by_anchor = fallback_rssi_by_anchor
                                 sample_counts = fallback_sample_counts or sample_counts
                                 self.last_published_fallback_sample_ts = fallback_sample_ts
                                 if VERBOSE_LOGGING:
                                     print(
-                                        "[RELAX] Using event-batch time fallback: "
+                                        "[RELAX] Using latest-four-anchor time fallback: "
                                         f"span={span:.2f}s | sample_counts={sample_counts}"
                                     )
                             elif VERBOSE_LOGGING:
@@ -1840,6 +2151,9 @@ class IndoorPositioningServer:
                         sync_ok, span = self.is_time_synchronized(anchor_data)
                         if sync_ok:
                             anchor_distances = [item[:4] for item in anchor_data]
+                            rssi_by_anchor = {
+                                str(item[0]): float(item[6]) for item in anchor_data
+                            }
                             (
                                 position,
                                 residual_rms_m,
@@ -1872,18 +2186,15 @@ class IndoorPositioningServer:
                         self.finish_position_batch(processed_samples)
                         continue
 
-                # If pressure override is active but BLE has no valid position,
-                # still publish the furniture position so the UI does not go stale.
+                # When furniture is occupied, pressure state owns the published
+                # location and BLE output is paused until a vacant message arrives.
                 if (
-                    position is None
-                    and self.pressure_override_active
+                    self.pressure_override_active
                     and self.pressure_override_location
                 ):
-                    furniture = FURNITURE.get(self.pressure_override_location)
-                    if furniture:
-                        fx = float(furniture["x"])
-                        fy = float(furniture["y"])
-                        semantic = str(furniture.get("label", self.pressure_override_location))
+                    pressure_target = self.get_pressure_override_target()
+                    if pressure_target:
+                        fx, fy, semantic = pressure_target
                         activity_state = self.detect_motion_state(fx, fy)
                         self.evaluate_prolonged_stillness(
                             fx,
@@ -1910,8 +2221,7 @@ class IndoorPositioningServer:
                             activity_state=activity_state,
                             stationary_hold=False,
                         )
-                        if allow_three_anchor_fallback:
-                            self.finish_position_batch(processed_samples)
+                        self.finish_position_batch(processed_samples)
                         continue
 
                 if position is not None and anchor_distances:
@@ -1923,15 +2233,22 @@ class IndoorPositioningServer:
                         anchor_count=len(anchor_distances),
                     )
 
-                    if self.guard_unstable_position(
-                        position[0],
-                        position[1],
-                        prelim_confidence,
-                        residual_rms_m,
-                        len(anchor_distances),
-                    ):
-                        self.finish_position_batch(processed_samples)
-                        continue
+                    if rssi_by_anchor:
+                        (
+                            fused_x,
+                            fused_y,
+                            prelim_confidence,
+                            solver,
+                            residual_rms_m,
+                        ) = self.apply_rssi_fingerprint_fusion(
+                            position[0],
+                            position[1],
+                            prelim_confidence,
+                            solver,
+                            residual_rms_m,
+                            rssi_by_anchor,
+                        )
+                        position = (fused_x, fused_y)
 
                     guarded_x, guarded_y, jump_guarded = (
                         self.guard_low_confidence_jump(

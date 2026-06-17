@@ -108,6 +108,51 @@ $env:ZHIPU_MODEL="glm-4-flash"
 $env:AI_ANALYSIS_ENABLED="true"
 ```
 
+## High-heart-rate simulator and email
+
+The backend subscribes to `indoor/simulation/heart-rate`. While the simulator
+is active, the dashboard shows the simulated heart rate as critical without
+writing it into the watch reading tables. Releasing it restores the latest
+real watch value and re-runs the normal heart-rate alert rules.
+
+Start the interactive simulator from `indoor-positioning/`:
+
+```powershell
+python heart_rate_alert_simulator.py
+```
+
+Use `high`, `high 155`, `normal`, `status`, and `quit`. One-shot commands are
+also available:
+
+```powershell
+python heart_rate_alert_simulator.py --bpm 155 --activate
+python heart_rate_alert_simulator.py --clear
+```
+
+Email is sent only when the high-heart-rate simulation changes from inactive
+to active. Fill in the Git-ignored local configuration file:
+
+```properties
+# backend-springboot/config/email-local.properties
+app.email-alert.heart-rate-enabled=true
+app.email-alert.to=recipient@example.com
+spring.mail.username=your-account@gmail.com
+spring.mail.password=your-16-digit-app-password
+```
+
+Use a personal Gmail account with Google 2-Step Verification enabled. Create an
+app password at `https://myaccount.google.com/apppasswords`, name it
+`Elderly Care Demo`, and use the generated 16-character value as
+`spring.mail.password`. Do not use the normal Google account password. Port 587 and
+STARTTLS are not used because the current network blocks port 587. Port 465 with
+implicit SSL is configured instead. The sender address defaults to
+`spring.mail.username`.
+A one-off recipient can be supplied with `--email recipient@example.com`.
+
+After restarting Spring Boot, verify that the startup log reports
+`enabled=true`, `senderConfigured=true`, `passwordConfigured=true`, and
+`recipientConfigured=true`.
+
 ## Run
 
 Set database environment variables if needed:

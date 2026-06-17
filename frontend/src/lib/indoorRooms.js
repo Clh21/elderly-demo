@@ -93,7 +93,7 @@ export const DEFAULT_INDOOR_LAYOUT = {
     {
       id: 'anchor_02',
       x: 0.0,
-      y: 1.1,
+      y: 0.5,
       z: 0.9,
       txPower: -59.87,
       pathLossExponent: 1.719,
@@ -105,8 +105,8 @@ export const DEFAULT_INDOOR_LAYOUT = {
       x: 7.5,
       y: 0.0,
       z: 0.9,
-      txPower: -66.0,
-      pathLossExponent: 2.0,
+      txPower: -68.0,
+      pathLossExponent: 2.2,
       rssiTopic: 'indoor/ble/anchor_03/rssi',
       enabled: true,
     },
@@ -115,8 +115,8 @@ export const DEFAULT_INDOOR_LAYOUT = {
       x: 7.5,
       y: 4.0,
       z: 0.9,
-      txPower: -64.51,
-      pathLossExponent: 1.154,
+      txPower: -68.0,
+      pathLossExponent: 2.2,
       rssiTopic: 'indoor/ble/anchor_04/rssi',
       enabled: true,
     },
@@ -162,6 +162,29 @@ const toNumberOrNull = (value) => {
 const toNumberWithFallback = (value, fallback) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+export const getIndoorPositionTimestampMs = (position) => {
+  if (!position?.ts) {
+    return null;
+  }
+
+  const parsed = new Date(position.ts).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+export const shouldAcceptIndoorPositionUpdate = (currentPosition, nextPosition) => {
+  if (!nextPosition) {
+    return false;
+  }
+
+  const currentMs = getIndoorPositionTimestampMs(currentPosition);
+  const nextMs = getIndoorPositionTimestampMs(nextPosition);
+  if (currentMs == null || nextMs == null) {
+    return true;
+  }
+
+  return nextMs >= currentMs;
 };
 
 /**
@@ -374,6 +397,7 @@ export const normalizeIndoorPositionPayload = (payload, layout = DEFAULT_INDOOR_
   const boundedX = clamp(x, 0, normalizedLayout.widthM);
   const boundedY = clamp(y, 0, normalizedLayout.heightM);
   const zone = resolveRoomFromCoordinate(boundedX, boundedY, normalizedLayout);
+  const ts = payload.ts || payload.receivedAt || new Date().toISOString();
 
   return {
     x: boundedX,
@@ -389,7 +413,8 @@ export const normalizeIndoorPositionPayload = (payload, layout = DEFAULT_INDOOR_
     stationaryHold: Boolean(payload.stationary_hold),
     distancesM: payload.distances_m || {},
     simulatedRssi: payload.simulated_rssi || {},
-    ts: payload.ts || payload.receivedAt || new Date().toISOString(),
+    ts,
+    timestampMs: getIndoorPositionTimestampMs({ ts }),
     roomId: zone.id,
     roomLabel: zone.label,
     roomColor: zone.color,

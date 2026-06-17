@@ -124,6 +124,7 @@ const WatchMetricsGrid = ({
         chartData={watchData.heartRateHistory}
         readingTimestamp={watchData.heartRateTimestamp}
         onTitleClick={() => onOpenMetric('heartRate')}
+        detailText={watchData.heartRateSimulated ? 'High-heart-rate simulation is active' : null}
       />
       <WatchDataCard
         title="Body Temperature"

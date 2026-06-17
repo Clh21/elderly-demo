@@ -21,13 +21,17 @@ import {
 } from '../services/api';
 import { fetchActiveIndoorLayout } from '../services/indoorLayoutApi';
 import { fetchLatestIndoorPosition, openIndoorPositionStream } from '../services/positioningApi';
-import { normalizeIndoorLayout, normalizeIndoorPositionPayload } from '../lib/indoorRooms';
+import {
+  normalizeIndoorLayout,
+  normalizeIndoorPositionPayload,
+} from '../lib/indoorRooms';
 
 const Index = () => {
   const { user, token } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
   const lastSeenAlertId = useRef(0);
+  const lastIndoorPositionTimestampMs = useRef(null);
 
   const [selectedWatch, setSelectedWatch] = useState(null);
   const [pendingAlerts, setPendingAlerts] = useState([]);
@@ -64,6 +68,18 @@ const Index = () => {
       normalized.x.toFixed(2),
       normalized.y.toFixed(2),
     ].join('|');
+
+    if (
+      lastIndoorPositionTimestampMs.current != null
+      && normalized.timestampMs != null
+      && normalized.timestampMs < lastIndoorPositionTimestampMs.current
+    ) {
+      return;
+    }
+
+    if (normalized.timestampMs != null) {
+      lastIndoorPositionTimestampMs.current = normalized.timestampMs;
+    }
 
     setIndoorPosition(normalized);
     setRoomHistory((prev) => {

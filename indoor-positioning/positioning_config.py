@@ -20,33 +20,33 @@ PATH_LOSS_EXPONENT = 2.0
 # - Room size: 7.5 m (long) x 4.0 m (wide)
 # - x axis: along the long side of the room (length = 7.5 m)
 # - y axis: perpendicular to x axis toward anchor_01 direction (width = 4.0 m)
-# - Origin is the room's front-left corner; anchor_02 is offset to y = 1.1 m
+# - Origin is the room's front-left corner; anchor_02 is placed at x = 1.5 m, y = 1.0 m
 # - All anchors are placed on chairs at 0.9 m height (2D model currently uses x/y only)
 # - RSSI model values are calibrated for each anchor in its deployed position.
 ANCHORS = {
     "anchor_01": {
         "x": 0.0,
         "y": 4.0,
-        "tx_power": -59.04,
-        "path_loss_n": 2.940,
+        "tx_power": -59.79,
+        "path_loss_n": 2.240,
     },
     "anchor_02": {
-        "x": 0.0,
-        "y": 1.1,
-        "tx_power": -59.87,
-        "path_loss_n": 1.719,
+        "x": 1.5,
+        "y": 1.0,
+        "tx_power": -58.31,
+        "path_loss_n": 1.841,
     },
     "anchor_03": {
         "x": 7.5,
         "y": 0.0,
-        "tx_power": -66.0,
-        "path_loss_n": 2.0,
+        "tx_power": -58.60,
+        "path_loss_n": 1.946,
     },
     "anchor_04": {
         "x": 7.5,
         "y": 4.0,
-        "tx_power": -64.51,
-        "path_loss_n": 1.154,
+        "tx_power": -61.57,
+        "path_loss_n": 1.624,
     },
 }
 
@@ -58,32 +58,30 @@ ANCHORS = {
 # threshold_adc is the firmware threshold (documented here for reference only).
 # calibration_weight_kg is the reference weight used for calibration.
 #
-# NOTE: These coordinates match the default frontend layout in
-# frontend/src/lib/indoorRooms.js. If your Spring Boot backend serves a
-# different active layout (backend-springboot/data/indoor-layout-active.json),
-# make sure the furniture centers are kept in sync.
+# NOTE: These coordinates are furniture centers in the active frontend layout
+# (backend-springboot/data/indoor-layout-active.json). The layout stores
+# furniture as bottom-left x/y plus width/height, while pressure override needs
+# the resident coordinate at the center of the occupied object.
 FURNITURE = {
-    # NOTE: these are placeholder positions for a 7.5 x 4 m room.
-    # Adjust them to match the actual furniture layout before deploying.
     "sofa": {
-        "x": 5.0,
-        "y": 1.0,
+        "x": 5.3,
+        "y": 3.4,
         "room": "living_room",
         "label": "Sofa",
         "threshold_adc": 3000,
         "calibration_weight_kg": 50.0,
     },
     "bed": {
-        "x": 1.0,
-        "y": 1.0,
+        "x": 0.925,
+        "y": 0.45,
         "room": "bedroom",
         "label": "Bed",
         "threshold_adc": 3000,
         "calibration_weight_kg": 50.0,
     },
     "toilet": {
-        "x": 1.0,
-        "y": 3.0,
+        "x": 0.45,
+        "y": 2.85,
         "room": "toilet",
         "label": "Toilet",
         "threshold_adc": 3000,
@@ -103,16 +101,18 @@ STRICT_INROOM_OUTPUT = True
 VISUAL_VIEW_TRANSFORM = "none"
 
 # Positioning loop behavior
-# MQTT data drives calculation directly. Four anchors use a short settle period;
-# three anchors wait briefly for the fourth before falling back.
+# MQTT data drives calculation directly. The current accuracy-first profile
+# requires all four anchors in the same relaxed packet-slot frame.
 THREE_ANCHOR_FALLBACK_WAIT_SEC = 1.2
 # After all four anchors arrive, briefly collect the remaining MQTT messages
 # from the same ESP32 scan batch before solving.
-FOUR_ANCHOR_SETTLE_SEC = 0.15
-SNAPSHOT_WINDOW_SEC = 3.0
+FOUR_ANCHOR_SETTLE_SEC = 0.12
+SNAPSHOT_WINDOW_SEC = 2.5
 MIN_SNAPSHOT_SAMPLES_PER_ANCHOR = 2
 MAX_READING_AGE_SEC = 4.0
-USE_FILTERED_RSSI = True
+# For live walking demos, use the raw RSSI from each packet. The ESP32 Kalman
+# value is stable, but it lags enough to keep reporting a previous room.
+USE_FILTERED_RSSI = False
 
 # Teacher-required consistency mode:
 # each trilateration frame groups RSSI samples around the same beacon
@@ -120,15 +120,15 @@ USE_FILTERED_RSSI = True
 # few intervals, so the actual frame matcher allows a small slot tolerance.
 USE_PACKET_SLOT_SYNC = True
 BEACON_ADV_INTERVAL_MS = 100
-MIN_ANCHORS_PER_SYNC_FRAME = 3
+MIN_ANCHORS_PER_SYNC_FRAME = 4
 MIN_SYNC_FRAMES_PER_UPDATE = 1
-FRAME_MATCH_TOLERANCE_SLOTS = 2
+FRAME_MATCH_TOLERANCE_SLOTS = 4
 
-# Publish only the newest qualifying packet-synchronized frame. Do not fall
-# back to an arbitrary time window; if a batch cannot form a fresh 3/4-anchor
-# frame, discard it and wait for the next interval.
-USE_TIME_SYNC_FALLBACK_AFTER_RELAX = False
-RELAXED_ANCHOR_SYNC_WINDOW_SEC = 1.5
+# Publish the newest qualifying packet-synchronized frame first. If exact
+# packet-slot matching misses a cycle, use a very short latest-four-anchor
+# window so the UI stays live without accepting old coordinates.
+USE_TIME_SYNC_FALLBACK_AFTER_RELAX = True
+RELAXED_ANCHOR_SYNC_WINDOW_SEC = 1.2
 USE_LATEST_SYNC_FRAME_ONLY = True
 MAX_SYNC_FRAME_AGE_SEC = 2.5
 
@@ -160,34 +160,47 @@ CONFIDENCE_ERROR_SCALE_M = 1.8
 # A three-anchor solution has no spare anchor for cross-checking.
 THREE_ANCHOR_CONFIDENCE_FACTOR = 0.8
 MIN_POSITION_CONFIDENCE_TO_PUBLISH = 0.55
-THREE_ANCHOR_MAX_RESIDUAL_M = 1.25
+THREE_ANCHOR_MAX_RESIDUAL_M = 1.45
 THREE_ANCHOR_LARGE_JUMP_M = 0.85
-THREE_ANCHOR_JUMP_CONFIRM_UPDATES = 3
+THREE_ANCHOR_JUMP_CONFIRM_UPDATES = 2
 THREE_ANCHOR_JUMP_CONFIRM_RADIUS_M = 0.75
-THREE_ANCHOR_INITIAL_CONFIRM_UPDATES = 3
+THREE_ANCHOR_INITIAL_CONFIRM_UPDATES = 1
 
 # Reject implausible low-confidence jumps before they enter smoothing.
-USE_LOW_CONFIDENCE_JUMP_GUARD = True
+# Disabled during live RSSI diagnosis so positioning output does not stall.
+USE_LOW_CONFIDENCE_JUMP_GUARD = False
 LOW_CONFIDENCE_JUMP_THRESHOLD = 0.82
 LOW_CONFIDENCE_JUMP_BASE_M = 0.35
 LOW_CONFIDENCE_MAX_SPEED_MPS = 1.5
 LOW_CONFIDENCE_MAX_ALLOWED_JUMP_M = 1.4
 
-# Clamp RSSI-derived distance to a reasonable range (meters).
+# Clamp RSSI-derived distance to a reasonable range (meters). The room diagonal
+# is about 8.5 m, so a much larger value lets weak RSSI pull solutions to walls.
 MIN_DISTANCE_M = 0.2
-MAX_DISTANCE_M = 13.0
+MAX_DISTANCE_M = 8.5
+
+# Use the latest quick-room calibration CSV as a lightweight RSSI fingerprint.
+# This corrects strong multipath/metal-shadow cases where RSSI no longer follows
+# a simple log-distance model.
+USE_RSSI_FINGERPRINT_FUSION = True
+RSSI_FINGERPRINT_CSV = "quick_room_calibration_anchor2_150_100.csv"
+RSSI_FINGERPRINT_MAX_RMS_DB = 7.0
+RSSI_FINGERPRINT_MIN_ANCHORS = 3
+RSSI_FINGERPRINT_BLEND = 0.85
+RSSI_FINGERPRINT_TOP_K = 3
+RSSI_FINGERPRINT_WEIGHT_POWER = 2.0
 
 # Smooth final position output (exponential smoothing).
 USE_POSITION_SMOOTHING = True
-POSITION_SMOOTHING_ALPHA = 0.45
+POSITION_SMOOTHING_ALPHA = 0.70
 
 # Aggregate recent solved positions for a more stable reported coordinate.
-USE_POSITION_AGGREGATION = True
-POSITION_AGGREGATION_WINDOW = 3
+USE_POSITION_AGGREGATION = False
+POSITION_AGGREGATION_WINDOW = 1
 POSITION_AGGREGATION_MODE = "median"  # "median" or "mean"
 
 # Stationary hold: lock coordinates when movement is tiny to prevent drift.
-USE_STATIONARY_HOLD = True
+USE_STATIONARY_HOLD = False
 # Avoid locking when confidence is low, otherwise wrong points can be held.
 HOLD_MIN_CONFIDENCE_FOR_LOCK = 0.62
 STATIONARY_MOVE_THRESHOLD_M = 0.12
@@ -207,9 +220,9 @@ SMOOTHING_ALPHA_MIN = 0.08
 SMOOTHING_ALPHA_MAX = 0.55
 SMOOTHING_ALPHA_MAX_DELTA_PER_UPDATE = 0.1
 
-# Soft pressure-BLE fusion: blend furniture center with BLE coordinate instead of
-# jumping directly to the furniture center.
-USE_SOFT_PRESSURE_FUSION = True
+# Pressure interaction override: when furniture is occupied, lock the resident
+# location to the furniture center and pause BLE output until it is released.
+USE_SOFT_PRESSURE_FUSION = False
 PRESSURE_FUSION_RADIUS_M = 2.0
 PRESSURE_FUSION_BLEND_WIDTH_M = 1.0
 

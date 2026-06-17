@@ -21,14 +21,41 @@ $pythonCommands = Get-Command python -All -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty Source -Unique
 $pythonCandidates += $pythonCommands
 
+function Test-PythonDependencies {
+    param([string]$Executable)
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $Executable
+    $startInfo.Arguments = '-c "import paho.mqtt.client, numpy"'
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    try {
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        [void]$process.Start()
+        [void]$process.StandardOutput.ReadToEnd()
+        [void]$process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        return $process.ExitCode -eq 0
+    } catch {
+        return $false
+    } finally {
+        if ($process) {
+            $process.Dispose()
+        }
+    }
+}
+
 $PythonExe = $null
 foreach ($candidate in ($pythonCandidates | Where-Object { $_ } | Select-Object -Unique)) {
     if (-not (Test-Path $candidate)) {
         continue
     }
 
-    & $candidate -c "import paho.mqtt.client, numpy" 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-PythonDependencies -Executable $candidate) {
         $PythonExe = (Resolve-Path $candidate).Path
         break
     }

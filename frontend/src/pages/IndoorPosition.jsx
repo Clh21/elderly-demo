@@ -16,6 +16,7 @@ import {
   formatIndoorTimestamp,
   normalizeIndoorLayout,
   normalizeIndoorPositionPayload,
+  shouldAcceptIndoorPositionUpdate,
 } from '../lib/indoorRooms';
 
 const STALE_TIMEOUT_MS = 90_000;
@@ -103,7 +104,9 @@ const IndoorPosition = () => {
   useEffect(() => {
     const normalized = normalizeIndoorPositionPayload(latestQuery.data, layout);
     if (normalized) {
-      setLivePosition(normalized);
+      setLivePosition((current) => (
+        shouldAcceptIndoorPositionUpdate(current, normalized) ? normalized : current
+      ));
     }
   }, [latestQuery.data, layout]);
 
@@ -121,7 +124,9 @@ const IndoorPosition = () => {
         if (!normalized) {
           return;
         }
-        setLivePosition(normalized);
+        setLivePosition((current) => (
+          shouldAcceptIndoorPositionUpdate(current, normalized) ? normalized : current
+        ));
         setStreamConnected(true);
       },
       onError: () => {

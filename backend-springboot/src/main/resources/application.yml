@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: elderlycare-backend
+  config:
+    import: optional:file:./config/email-local.properties
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:elderly}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Hong_Kong
@@ -23,6 +25,23 @@ spring:
   sql:
     init:
       mode: never
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:465}
+    username: ${SMTP_USERNAME:michaelfmikechen@gmail.com}
+    password: ${SMTP_PASSWORD:accclyfmemsyxtti}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT_MS:5000}
+          ssl:
+            enable: ${SMTP_SSL_ENABLED:true}
+          timeout: ${SMTP_READ_TIMEOUT_MS:5000}
+          writetimeout: ${SMTP_WRITE_TIMEOUT_MS:5000}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+            required: ${SMTP_STARTTLS_REQUIRED:false}
 
 app:
   cors:
@@ -60,6 +79,16 @@ app:
     enabled: ${AI_ALERT_MQTT_ENABLED:true}
     mqtt-url: ${AI_ALERT_MQTT_URL:tcp://127.0.0.1:1883}
     default-watch-id: ${AI_ALERT_DEFAULT_WATCH_ID:real-watch-001}
+  heart-rate-simulation:
+    enabled: ${HEART_RATE_SIMULATION_ENABLED:true}
+    mqtt-url: ${HEART_RATE_SIMULATION_MQTT_URL:tcp://127.0.0.1:1883}
+    topic: ${HEART_RATE_SIMULATION_TOPIC:indoor/simulation/heart-rate}
+    default-watch-id: ${HEART_RATE_SIMULATION_DEFAULT_WATCH_ID:real-watch-001}
+    default-bpm: ${HEART_RATE_SIMULATION_DEFAULT_BPM:145}
+  email-alert:
+    heart-rate-enabled: ${HEART_RATE_EMAIL_ENABLED:true}
+    to: ${HEART_RATE_ALERT_EMAIL_TO:michaelfmikechen@outlook.com}
+    from: ${HEART_RATE_ALERT_EMAIL_FROM:michaelfmikechen@gmail.com}
   auth:
     token-ttl: 12h
     accounts:
