@@ -26,17 +26,17 @@ spring:
     init:
       mode: never
   mail:
-    host: ${SMTP_HOST:smtp.gmail.com}
-    port: ${SMTP_PORT:465}
-    username: ${SMTP_USERNAME:michaelfmikechen@gmail.com}
-    password: ${SMTP_PASSWORD:accclyfmemsyxtti}
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:25}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
     properties:
       mail:
         smtp:
-          auth: ${SMTP_AUTH:true}
+          auth: ${SMTP_AUTH:false}
           connectiontimeout: ${SMTP_CONNECTION_TIMEOUT_MS:5000}
           ssl:
-            enable: ${SMTP_SSL_ENABLED:true}
+            enable: ${SMTP_SSL_ENABLED:false}
           timeout: ${SMTP_READ_TIMEOUT_MS:5000}
           writetimeout: ${SMTP_WRITE_TIMEOUT_MS:5000}
           starttls:
@@ -86,9 +86,9 @@ app:
     default-watch-id: ${HEART_RATE_SIMULATION_DEFAULT_WATCH_ID:real-watch-001}
     default-bpm: ${HEART_RATE_SIMULATION_DEFAULT_BPM:145}
   email-alert:
-    heart-rate-enabled: ${HEART_RATE_EMAIL_ENABLED:true}
-    to: ${HEART_RATE_ALERT_EMAIL_TO:michaelfmikechen@outlook.com}
-    from: ${HEART_RATE_ALERT_EMAIL_FROM:michaelfmikechen@gmail.com}
+    heart-rate-enabled: ${HEART_RATE_EMAIL_ENABLED:false}
+    to: ${HEART_RATE_EMAIL_TO:}
+    from: ${HEART_RATE_EMAIL_FROM:}
   auth:
     token-ttl: 12h
     accounts:

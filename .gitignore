@@ -12,7 +12,9 @@ frontend/coverage/
 .env.*
 !.env.example
 !.env.sample
-backend-springboot/config/email-local.properties
+backend-springboot/config/*local*.properties
+backend-springboot/config/*.secret.properties
+!backend-springboot/config/*.example.properties
 
 # Logs
 *.log

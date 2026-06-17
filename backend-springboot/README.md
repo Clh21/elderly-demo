@@ -135,18 +135,24 @@ to active. Fill in the Git-ignored local configuration file:
 ```properties
 # backend-springboot/config/email-local.properties
 app.email-alert.heart-rate-enabled=true
-app.email-alert.to=recipient@example.com
-spring.mail.username=your-account@gmail.com
-spring.mail.password=your-16-digit-app-password
+app.email-alert.to=
+app.email-alert.from=
+spring.mail.host=
+spring.mail.port=
+spring.mail.username=
+spring.mail.password=
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.ssl.enable=true
 ```
 
 Use a personal Gmail account with Google 2-Step Verification enabled. Create an
 app password at `https://myaccount.google.com/apppasswords`, name it
 `Elderly Care Demo`, and use the generated 16-character value as
-`spring.mail.password`. Do not use the normal Google account password. Port 587 and
-STARTTLS are not used because the current network blocks port 587. Port 465 with
-implicit SSL is configured instead. The sender address defaults to
-`spring.mail.username`.
+`spring.mail.password` in your ignored local file. Do not use the normal Google
+account password. In this network, use Gmail's SSL SMTP endpoint on port 465 in
+`email-local.properties`; keep the committed `application.yml` free of SMTP
+accounts and app passwords. The sender address defaults to `spring.mail.username`
+unless `app.email-alert.from` is set.
 A one-off recipient can be supplied with `--email recipient@example.com`.
 
 After restarting Spring Boot, verify that the startup log reports
